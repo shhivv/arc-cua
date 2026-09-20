@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from .errors import InvalidDecision, StaleDesktopState
 from .models import ActionRecord, ExecutionResult, Subtask, TerminalKind
+from .models import ActionKind, DesktopSnapshot, ExecutableAction
 from .protocols import DecisionPolicy, DesktopBackend
 from .validation import materialize_action
 
@@ -34,6 +35,75 @@ class DesktopExecutor:
         self.backend = backend
         self.policy = policy
         self.config = config or RuntimeConfig()
+
+    def _observe_after_action(
+        self,
+        *,
+        before: DesktopSnapshot,
+        action: ExecutableAction,
+    ) -> DesktopSnapshot:
+        # Wait for the desktop to settle after a mutating action.
+        #
+        # Timing belongs to the runtime, not the decision model. JEV should
+        # choose UI actions; arc_cua should decide when it is safe to observe
+        # the next state.
+        #
+        # OCR is noisy, so settling uses a structural signature rather than the
+        # snapshot revision hash.
+
+        if action.kind == ActionKind.TYPE_TEXT:
+            # Search/autocomplete UIs often debounce after typing.
+            minimum_wait_s = 0.65
+            timeout_s = 2.5
+            poll_s = 0.12
+
+        elif action.kind in {
+            ActionKind.CLICK,
+            ActionKind.DOUBLE_CLICK,
+            ActionKind.RIGHT_CLICK,
+            ActionKind.PRESS_KEY,
+            ActionKind.HOTKEY,
+            ActionKind.SET_VALUE,
+            ActionKind.DRAG_TO,
+            ActionKind.DRAG_BY,
+        }:
+            minimum_wait_s = 0.18
+            timeout_s = 1.5
+            poll_s = 0.10
+
+        else:
+            return self.backend.observe()
+
+        started = time.perf_counter()
+        deadline = started + timeout_s
+
+        latest = before
+        last_signature = None
+        stable_frames = 0
+
+        while time.perf_counter() < deadline:
+            latest = self.backend.observe()
+            signature = _structural_signature(latest)
+
+            if signature == last_signature:
+                stable_frames += 1
+            else:
+                last_signature = signature
+                stable_frames = 0
+
+            elapsed = time.perf_counter() - started
+
+            # Require both:
+            # - enough time for debounced UI work to start
+            # - two matching observations after that
+            if elapsed >= minimum_wait_s and stable_frames >= 2:
+                return latest
+
+            time.sleep(poll_s)
+
+        # Volatile apps may never become perfectly still. Return the freshest
+        # observation rather than replaying the action.
+        return latest
 
     def run(self, subtask: Subtask) -> ExecutionResult:
         started = time.perf_counter()
@@ -90,9 +160,10 @@ class DesktopExecutor:
                 raise
 
             stale_retries = 0
-            if self.config.post_action_settle_s:
-                time.sleep(self.config.post_action_settle_s)
-            snapshot = self.backend.observe()
+            snapshot = self._observe_after_action(
+                before=before,
+                action=action,
+            )
 
             history.append(
                 ActionRecord(
@@ -158,6 +229,49 @@ class DesktopExecutor:
             history=tuple(history),
             reason=f"Reached agent-supplied action budget ({subtask.max_actions}).",
         )
+
+
+def _structural_signature(
+    snapshot: DesktopSnapshot,
+) -> tuple:
+    # Stable representation used only for post-action settling.
+    #
+    # For OCR, ignore recognized text, confidence, and tiny geometry changes.
+    # Those can vary between Apple Vision passes even when the UI is identical.
+    #
+    # For semantic accessibility elements, include value/state because those
+    # changes are meaningful.
+
+    rows = []
+
+    for element in snapshot.elements:
+        if not element.visible:
+            continue
+
+        if element.source == "macos_ocr":
+            rows.append(
+                (
+                    element.id,
+                    element.role,
+                    element.source,
+                    tuple(action.value for action in element.actions),
+                )
+            )
+        else:
+            rows.append(
+                (
+                    element.id,
+                    element.role,
+                    element.source,
+                    str(element.value),
+                    element.focused,
+                    element.selected,
+                    element.expanded,
+                    tuple(action.value for action in element.actions),
+                )
+            )
+
+    return tuple(sorted(rows))
 
 
 def _terminal_observations(status: TerminalKind, subtask: Subtask) -> tuple[str, ...]:

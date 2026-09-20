@@ -92,34 +92,41 @@ class MacOSHybridBackend:
         # Keep AX first because its semantics
         # are stronger. OCR fills in the holes.
 
+        ocr_elements = _dedupe_ocr(
+            ocr_capture.elements
+        )
+
         elements = (
             tuple(ax_snapshot.elements)
-            + tuple(ocr_capture.elements)
+            + tuple(ocr_elements)
         )
 
         self._ocr_elements = {
             element.id: element
             for element
-            in ocr_capture.elements
+            in ocr_elements
         }
 
         # Build one combined revision.
 
-        revision_payload = [
-            _revision_element(element)
-            for element in sorted(
-                elements,
-                key=lambda item: item.id,
-            )
-        ]
+        revision_payload = {
+            "ax_revision": ax_snapshot.revision,
+
+            # OCR text and bounding boxes jitter slightly between Vision passes.
+            # Stable visual-region IDs are enough for V1 change detection.
+            "ocr_elements": sorted(
+                element.id
+                for element in ocr_capture.elements
+            ),
+        }
 
         revision = hashlib.sha256(
             json.dumps(
                 revision_payload,
                 sort_keys=True,
-                default=str,
             ).encode()
         ).hexdigest()
+
 
         context = dict(
             ax_snapshot.context
@@ -280,6 +287,26 @@ class MacOSHybridBackend:
                 "OCR target has no screen bounds"
             )
 
+        if action.kind == ActionKind.TYPE_TEXT:
+            if action.value is None:
+                raise UnsupportedDesktopAction(
+                    "TYPE_TEXT requires an agent-supplied value"
+                )
+
+            # OCR gives us a visual focus target. action.value has already been
+            # validated/resolved from Subtask.inputs by arc_cua.
+            _click(
+                target.bounds,
+                count=1,
+                button="left",
+            )
+
+            time.sleep(0.08)
+            _select_all()
+            time.sleep(0.08)
+            _type_text(str(action.value))
+            return
+
         if action.kind == ActionKind.CLICK:
 
             _click(
@@ -352,6 +379,164 @@ class MacOSHybridBackend:
             f"and DRAG_TO; got "
             f"{action.kind.value}"
         )
+
+
+def _select_all() -> None:
+    Q = _quartz()
+
+    # macOS Cmd+A. Virtual keycode 0 is the A key.
+    keycode_a = 0
+
+    for down in (True, False):
+        event = Q.CGEventCreateKeyboardEvent(
+            None,
+            keycode_a,
+            down,
+        )
+        Q.CGEventSetFlags(
+            event,
+            Q.kCGEventFlagMaskCommand,
+        )
+        Q.CGEventPost(
+            Q.kCGHIDEventTap,
+            event,
+        )
+
+
+def _type_text(
+    text: str,
+    *,
+    check=None,
+) -> None:
+    """
+    Type an agent-supplied literal one Character at a time.
+
+    This mirrors Third Hand's macOS implementation:
+    - one Unicode key-down/key-up pair per character
+    - modifier flags explicitly cleared on every event
+    - optional focus check before each character
+
+    This function never generates or chooses text.
+    """
+    if not text:
+        return
+
+    Q = _quartz()
+
+    for index, character in enumerate(text):
+        if check is not None:
+            check()
+
+        down = Q.CGEventCreateKeyboardEvent(
+            None,
+            0,
+            True,
+        )
+        up = Q.CGEventCreateKeyboardEvent(
+            None,
+            0,
+            False,
+        )
+
+        if down is None or up is None:
+            raise RuntimeError(
+                "Could not create macOS Unicode keyboard events"
+            )
+
+        # A preceding Cmd+A must not turn Unicode input into shortcuts.
+        Q.CGEventSetFlags(down, 0)
+        Q.CGEventSetFlags(up, 0)
+
+        # CGEventKeyboardSetUnicodeString uses UTF-16 code units.
+        unit_count = len(character.encode("utf-16-le")) // 2
+
+        Q.CGEventKeyboardSetUnicodeString(
+            down,
+            unit_count,
+            character,
+        )
+        Q.CGEventKeyboardSetUnicodeString(
+            up,
+            unit_count,
+            character,
+        )
+
+        Q.CGEventPost(Q.kCGHIDEventTap, down)
+        Q.CGEventPost(Q.kCGHIDEventTap, up)
+
+        # Third Hand periodically yields. This tiny pause gives Electron/custom
+        # controls a chance to process the event queue without slowing typing.
+        if index % 16 == 15:
+            time.sleep(0.001)
+
+
+
+def _dedupe_ocr(
+    elements: tuple[DesktopElement, ...],
+) -> tuple[DesktopElement, ...]:
+    # Collapse overlapping Apple Vision observations.
+    #
+    # Vision can return multiple slightly different readings for the same visual
+    # control/text region. Prefer the highest-confidence reading so JEV sees one
+    # candidate instead of several competing copies.
+
+    kept: list[DesktopElement] = []
+
+    ordered = sorted(
+        elements,
+        key=lambda element: float(
+            element.metadata.get("confidence", 0.0)
+        ),
+        reverse=True,
+    )
+
+    for candidate in ordered:
+        if candidate.bounds is None:
+            continue
+
+        duplicate = False
+
+        for existing in kept:
+            if existing.bounds is None:
+                continue
+
+            if _iou(candidate.bounds, existing.bounds) >= 0.55:
+                duplicate = True
+                break
+
+        if not duplicate:
+            kept.append(candidate)
+
+    return tuple(kept)
+
+
+def _iou(
+    a: Bounds,
+    b: Bounds,
+) -> float:
+    left = max(a.x, b.x)
+    top = max(a.y, b.y)
+    right = min(a.x + a.width, b.x + b.width)
+    bottom = min(a.y + a.height, b.y + b.height)
+
+    width = max(0.0, right - left)
+    height = max(0.0, bottom - top)
+
+    intersection = width * height
+
+    if intersection <= 0.0:
+        return 0.0
+
+    union = (
+        a.width * a.height
+        + b.width * b.height
+        - intersection
+    )
+
+    if union <= 0.0:
+        return 0.0
+
+    return intersection / union
 
 
 def _quartz() -> Any:

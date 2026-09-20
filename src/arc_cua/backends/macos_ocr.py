@@ -316,11 +316,10 @@ class MacOSOCRProvider:
                         role="visible_text",
                         name=normalized,
 
-                        actions=(
-                            ActionKind.CLICK,
-                            ActionKind.DOUBLE_CLICK,
-                            ActionKind.RIGHT_CLICK,
-                        ),
+                        actions=_ocr_actions(
+                                    normalized,
+                                    bounds,
+                                ),
 
                         enabled=True,
                         visible=True,
@@ -700,26 +699,84 @@ def _rect_parts(
             float(size[1]),
         )
 
+def _normalize_ocr_text(text: str) -> str:
+    cleaned = "".join(
+        char.casefold() if char.isalnum() else " "
+        for char in text
+    )
+    return " ".join(cleaned.split())
+
+
+def _looks_like_text_input(
+    text: str,
+    bounds: Bounds,
+) -> bool:
+    normalized = _normalize_ocr_text(text)
+    compact = normalized.replace(" ", "")
+
+    if not normalized:
+        return False
+
+    hints = (
+        "search",
+        "find",
+        "type here",
+        "enter text",
+        "enter name",
+        "email",
+        "password",
+        "username",
+        "message",
+    )
+    if any(hint in normalized for hint in hints):
+        return True
+
+    if any(
+        hint in compact
+        for hint in (
+            "whatdoyouwanttoplay",
+            "whatdoyouwant",
+            "wanttoplay",
+            "entersomething",
+        )
+    ):
+        return True
+
+    # Tolerate noisy Spotify OCR such as "What doyou want to plafP".
+    if "whatdo" in compact and "wantto" in compact and "pla" in compact:
+        return True
+
+    return False
+
+
+def _ocr_actions(
+    text: str,
+    bounds: Bounds,
+) -> tuple[ActionKind, ...]:
+    actions = [
+        ActionKind.CLICK,
+        ActionKind.DOUBLE_CLICK,
+        ActionKind.RIGHT_CLICK,
+    ]
+
+    if _looks_like_text_input(text, bounds):
+        actions.append(ActionKind.TYPE_TEXT)
+
+    return tuple(actions)
+
 
 def _ocr_id(
     text: str,
     bounds: Bounds,
     window_id: int,
 ) -> str:
-
-    # Quantize location so tiny OCR bounding-box
-    # jitter doesn't constantly produce new IDs.
+    """Keep a visual region stable even when Vision changes its OCR spelling."""
+    center_x, center_y = bounds.center
 
     payload = (
-        text.casefold(),
         window_id,
-
-        # Coarse spatial bucket.
-        #
-        # OCR geometry naturally jitters between frames.
-        round(bounds.x / 16),
-        round(bounds.y / 16),
-        round(bounds.width / 16),
+        round(center_x / 48),
+        round(center_y / 24),
         round(bounds.height / 16),
     )
 
@@ -730,23 +787,22 @@ def _ocr_id(
         ).hexdigest()[:14]
     )
 
-
 def _ocr_guard(
     text: str,
     bounds: Bounds,
     window_id: int,
 ) -> str:
+    """Guard visual identity using coarse geometry, not OCR spelling."""
+    center_x, center_y = bounds.center
 
     payload = (
-        text.casefold(),
         window_id,
-
-        # Guards care about identity, not subpixel geometry.
-        round(bounds.x / 16),
-        round(bounds.y / 16),
-        round(bounds.width / 16),
+        round(center_x / 48),
+        round(center_y / 24),
         round(bounds.height / 16),
     )
+
     return hashlib.sha256(
         repr(payload).encode()
     ).hexdigest()[:20]
+
