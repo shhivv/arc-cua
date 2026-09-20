@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import hashlib
 import json
+import re
 import sys
 import time
 from typing import Any
@@ -136,12 +139,42 @@ class MacOSAXBackend:
             return
 
         if action.kind in {ActionKind.TYPE_TEXT, ActionKind.SET_VALUE}:
-            error, settable = AS.AXUIElementIsAttributeSettable(ref, "AXValue", None)
+            error, settable = AS.AXUIElementIsAttributeSettable(
+                ref,
+                "AXValue",
+                None,
+            )
+
             if error != 0 or not settable:
-                raise UnsupportedDesktopAction("AXValue is not settable on this target")
-            error = AS.AXUIElementSetAttributeValue(ref, "AXValue", action.value)
+                raise UnsupportedDesktopAction(
+                    "AXValue is not settable on this target"
+                )
+
+            if action.value is None:
+                raise UnsupportedDesktopAction(
+                    f"{action.kind.value} requires an agent-supplied value"
+                )
+
+            if action.kind == ActionKind.TYPE_TEXT:
+                value_to_set = str(action.value)
+            else:
+                current_value = _attr(AS, ref, "AXValue")
+                value_to_set = _coerce_settable_ax_value(
+                    current_value,
+                    action.value,
+                )
+
+            error = AS.AXUIElementSetAttributeValue(
+                ref,
+                "AXValue",
+                value_to_set,
+            )
+
             if error != 0:
-                raise UnsupportedDesktopAction(f"Setting AXValue failed with error {error}")
+                raise UnsupportedDesktopAction(
+                    f"Setting AXValue failed with error {error}"
+                )
+
             return
 
         raise UnsupportedDesktopAction(f"MacOSAXBackend v0 cannot execute {action.kind.value}")
@@ -193,7 +226,8 @@ class MacOSAXBackend:
         label = _attr(AS, ref, "AXLabel")
         help_text = _attr(AS, ref, "AXHelp")
         name = next((str(v) for v in (title, label, description, help_text) if v not in (None, "")), "")
-        value = _coerce_value(_attr(AS, ref, "AXValue"))
+        raw_value = _attr(AS, ref, "AXValue")
+        value = _coerce_value(raw_value)
         enabled = _attr(AS, ref, "AXEnabled")
         focused = _attr(AS, ref, "AXFocused")
         selected = _attr(AS, ref, "AXSelected")
@@ -212,7 +246,9 @@ class MacOSAXBackend:
             settable = False
         if settable and role in _TEXT_ROLES:
             capabilities.append(ActionKind.TYPE_TEXT)
-        if settable and role in _VALUE_ROLES:
+
+        # Capability comes from AX itself, not a hard-coded role allowlist.
+        if settable:
             capabilities.append(ActionKind.SET_VALUE)
 
         # Ignore anonymous containers with no useful action/state. Their children are
@@ -222,6 +258,14 @@ class MacOSAXBackend:
             return None
 
         metadata: dict[str, Any] = {}
+
+        value_kind = _ax_value_kind(raw_value)
+        if value_kind:
+            metadata["value_type"] = value_kind
+
+        if settable:
+            metadata["ax_value_settable"] = True
+
         if identifier:
             metadata["identifier"] = str(identifier)
         if help_text and str(help_text) != name:
@@ -289,6 +333,182 @@ def _action_names(AS: Any, ref: Any) -> set[str]:
 
 def _stable_id(ref: Any) -> str:
     return "ax_" + hashlib.sha1(repr(ref).encode()).hexdigest()[:14]
+
+
+def _ax_value_kind(
+    value: Any,
+) -> str | None:
+    if value is None:
+        return None
+
+    if hasattr(value, "timeIntervalSince1970"):
+        return "date_time"
+
+    if isinstance(value, bool):
+        return "boolean"
+
+    if isinstance(value, int):
+        return "integer"
+
+    if isinstance(value, float):
+        return "number"
+
+    if isinstance(value, str):
+        return "text"
+
+    return type(value).__name__
+
+
+def _parse_time_literal(
+    value: str,
+) -> tuple[int, int] | None:
+    text = value.strip().lower()
+
+    match = re.fullmatch(
+        r"(\d{1,2})(?::(\d{1,2}))?\s*([ap])?\.?m?\.?",
+        text,
+    )
+
+    if not match:
+        return None
+
+    hour = int(match.group(1))
+    minute = int(match.group(2) or 0)
+    suffix = match.group(3)
+
+    if minute > 59:
+        return None
+
+    if suffix is not None:
+        if not 1 <= hour <= 12:
+            return None
+
+        hour = hour % 12
+
+        if suffix == "p":
+            hour += 12
+
+    elif not 0 <= hour <= 23:
+        return None
+
+    return hour, minute
+
+
+def _coerce_settable_ax_value(
+    current_value: Any,
+    supplied_value: Any,
+) -> Any:
+    # NSDate / CFDate-like values.
+    if current_value is not None and hasattr(
+        current_value,
+        "timeIntervalSince1970",
+    ):
+        if not isinstance(supplied_value, str):
+            raise UnsupportedDesktopAction(
+                "Date/time AXValue requires a string input"
+            )
+
+        parsed_time = _parse_time_literal(supplied_value)
+
+        try:
+            timestamp = float(
+                current_value.timeIntervalSince1970()
+            )
+        except Exception as exc:
+            raise UnsupportedDesktopAction(
+                "Could not read current date/time AXValue"
+            ) from exc
+
+        current_datetime = datetime.fromtimestamp(
+            timestamp
+        ).astimezone()
+
+        if parsed_time is not None:
+            hour, minute = parsed_time
+            target_datetime = current_datetime.replace(
+                hour=hour,
+                minute=minute,
+                second=0,
+                microsecond=0,
+            )
+        else:
+            try:
+                target_datetime = datetime.fromisoformat(
+                    supplied_value
+                )
+            except ValueError as exc:
+                raise UnsupportedDesktopAction(
+                    f"Could not parse date/time value: {supplied_value!r}"
+                ) from exc
+
+            if target_datetime.tzinfo is None:
+                target_datetime = target_datetime.replace(
+                    tzinfo=current_datetime.tzinfo
+                )
+
+        try:
+            import Foundation  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError(
+                "Foundation is required for macOS date/time AX values. "
+                "Install: pip install 'arc-cua[macos]'"
+            ) from exc
+
+        return Foundation.NSDate.dateWithTimeIntervalSince1970_(
+            target_datetime.timestamp()
+        )
+
+    if isinstance(current_value, bool):
+        if isinstance(supplied_value, str):
+            normalized = supplied_value.strip().lower()
+
+            if normalized in {
+                "true",
+                "yes",
+                "on",
+                "1",
+                "enabled",
+            }:
+                return True
+
+            if normalized in {
+                "false",
+                "no",
+                "off",
+                "0",
+                "disabled",
+            }:
+                return False
+
+            raise UnsupportedDesktopAction(
+                f"Could not parse boolean value: {supplied_value!r}"
+            )
+
+        return bool(supplied_value)
+
+    if isinstance(current_value, int) and not isinstance(
+        current_value,
+        bool,
+    ):
+        try:
+            return int(supplied_value)
+        except (TypeError, ValueError) as exc:
+            raise UnsupportedDesktopAction(
+                f"Could not parse integer value: {supplied_value!r}"
+            ) from exc
+
+    if isinstance(current_value, float):
+        try:
+            return float(supplied_value)
+        except (TypeError, ValueError) as exc:
+            raise UnsupportedDesktopAction(
+                f"Could not parse numeric value: {supplied_value!r}"
+            ) from exc
+
+    if isinstance(current_value, str):
+        return str(supplied_value)
+
+    return supplied_value
 
 
 def _coerce_value(value: Any) -> str | int | float | bool | None:
