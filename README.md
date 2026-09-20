@@ -238,11 +238,3 @@ src/arc_cua/
     memory.py             # state-machine test backend
     macos_ax.py           # real macOS accessibility backend (alpha)
 ```
-
-## Next engineering milestones
-
-1. **Composite perception** — merge AX/UIA elements with visual semantic regions under one stable id namespace.
-2. **Coordinate execution** — click/double-click/right-click/drag fallback when native accessibility actions are unavailable.
-3. **Timeline/canvas adapter** — first pro-app-specific semantic perception module, without application scripting.
-4. **Event-driven snapshots** — accessibility event cache instead of rebuilding the tree each step.
-5. **Benchmarks** — wall-clock time, JEV calls, planner calls, UI actions, cost and completion rate against screenshot/VLM computer use.
