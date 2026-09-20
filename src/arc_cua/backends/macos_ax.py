@@ -82,7 +82,18 @@ class MacOSAXBackend:
             ref = self._refs.get(action.target_id)
             if ref is None:
                 return False
-            current = self._element_from_ref(ref, action.target_id, parent_id=None)
+
+            try:
+                expected = snapshot.element(action.target_id)
+            except KeyError:
+                return False
+
+            current = self._element_from_ref(
+                ref,
+                action.target_id,
+                parent_id=expected.parent_id,
+            )
+
             if current is None or current.semantic_guard() != action.target_guard:
                 return False
         if action.secondary_target_id:
