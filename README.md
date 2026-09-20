@@ -1,8 +1,8 @@
-# jev-desktop
+# arc-cua
 
 **LLM-agnostic, low-latency execution runtime for desktop computer-use agents.**
 
-A planner/agent reasons at a high level, supplies a small concrete subtask plus the literal values and verification criteria, and `jev-desktop` uses JEV for the rapid UI action loop. The planner is deliberately outside the package.
+A planner/agent reasons at a high level, supplies a small concrete subtask plus the literal values and verification criteria, and `arc-cua` uses JEV for the rapid UI action loop. The planner is deliberately outside the package.
 
 ```text
 any planner / CUA
@@ -10,7 +10,7 @@ any planner / CUA
       | Subtask(goal, inputs, verification, constraints)
       v
 +------------------+
-|   jev-desktop    |
+|   arc-cua    |
 |                  |
 | observe desktop  |
 |       v          |
@@ -89,7 +89,7 @@ The stable boundary is plain JSON/Python data:
 Any GPT, Claude, Gemini, local model, deterministic planner, or other CUA can generate that payload.
 
 ```python
-from jev_desktop import execute_payload
+from arc_cua import execute_payload
 
 result = execute_payload(executor, payload)
 ```
@@ -225,7 +225,7 @@ Professional apps contain custom canvases that may expose little useful accessib
 ## Package layout
 
 ```text
-src/jev_desktop/
+src/arc_cua/
   api.py                 # LLM-agnostic JSON/Python boundary
   models.py              # Subtask, snapshot, action/result schemas
   protocols.py           # backend + decision policy interfaces

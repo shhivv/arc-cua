@@ -6,9 +6,9 @@ ScriptedPolicy stands in for JEV so the example is deterministic.
 
 from __future__ import annotations
 
-from jev_desktop import ActionKind, Decision, DesktopElement, DesktopExecutor, DesktopSnapshot, Subtask, TerminalKind
-from jev_desktop.backends import StateMachineBackend
-from jev_desktop.policies import ScriptedPolicy
+from arc_cua import ActionKind, Decision, DesktopElement, DesktopExecutor, DesktopSnapshot, Subtask, TerminalKind
+from arc_cua.backends import StateMachineBackend
+from arc_cua.policies import ScriptedPolicy
 
 
 def make_snapshot(state: dict) -> DesktopSnapshot:

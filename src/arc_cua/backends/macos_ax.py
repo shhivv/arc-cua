@@ -253,7 +253,7 @@ def _frameworks() -> tuple[Any, Any]:
         import AppKit  # type: ignore
     except ImportError as exc:
         raise RuntimeError(
-            "Install the macOS extra: pip install 'jev-desktop[macos]'"
+            "Install the macOS extra: pip install 'arc-cua[macos]'"
         ) from exc
     return AS, AppKit
 
@@ -292,7 +292,7 @@ def _quartz() -> Any:
     try:
         import Quartz  # type: ignore
     except ImportError as exc:
-        raise RuntimeError("Install the macOS extra: pip install 'jev-desktop[macos]'") from exc
+        raise RuntimeError("Install the macOS extra: pip install 'arc-cua[macos]'") from exc
     return Quartz
 
 

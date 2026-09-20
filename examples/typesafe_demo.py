@@ -7,9 +7,9 @@ validate the dynamic JEV policy independently from OS automation.
 from __future__ import annotations
 
 from effects_demo import make_snapshot, transition
-from jev_desktop import DesktopExecutor, Subtask
-from jev_desktop.backends import StateMachineBackend
-from jev_desktop.policies import TypeSafeJevPolicy
+from arc_cua import DesktopExecutor, Subtask
+from arc_cua.backends import StateMachineBackend
+from arc_cua.policies import TypeSafeJevPolicy
 
 
 def main() -> None:

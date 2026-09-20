@@ -1,4 +1,4 @@
-from jev_desktop import subtask_from_dict
+from arc_cua import subtask_from_dict
 
 
 def test_json_boundary_requires_agent_verification() -> None:

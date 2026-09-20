@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from jev_desktop import ActionKind, Decision, DesktopElement, DesktopSnapshot, Subtask
-from jev_desktop.errors import InvalidDecision
-from jev_desktop.validation import materialize_action
+from arc_cua import ActionKind, Decision, DesktopElement, DesktopSnapshot, Subtask
+from arc_cua.errors import InvalidDecision
+from arc_cua.validation import materialize_action
 
 
 def base_snapshot() -> DesktopSnapshot:
