@@ -71,62 +71,109 @@ class MacOSHybridBackend:
         self,
     ) -> DesktopSnapshot:
 
-        # AX defines which app/window we're
-        # currently operating.
-
         ax_snapshot = self.ax.observe()
 
         pid = int(
             ax_snapshot.context["pid"]
         )
 
-        # OCR exactly that application's window.
+        modal_elements, modal_bounds = _collect_modal_ax_elements(
+            self.ax,
+            pid,
+        )
+
+        modal_active = bool(
+            modal_elements
+        )
+
+        if modal_active:
+            # A modal blocks interaction with the content behind it.
+            ax_elements = tuple(
+                modal_elements
+            )
+        else:
+            ax_elements = tuple(
+                ax_snapshot.elements
+            )
+
+        # While a modal is active, don't force OCR to the old AX window title.
+        # Let Quartz choose the frontmost app surface.
+        preferred_title = (
+            None
+            if modal_active
+            else ax_snapshot.window
+        )
 
         ocr_capture = self.ocr.observe(
             pid=pid,
             app_name=ax_snapshot.application,
-            preferred_window_title=
-                ax_snapshot.window,
+            preferred_window_title=preferred_title,
         )
-
-        # Keep AX first because its semantics
-        # are stronger. OCR fills in the holes.
 
         ocr_elements = _dedupe_ocr(
             ocr_capture.elements
         )
 
+        if (
+            modal_active
+            and modal_bounds is not None
+        ):
+            # If the modal is attached inside the parent window, OCR may still
+            # see the whole parent. Keep only text whose center is in the modal.
+            ocr_elements = tuple(
+                element
+                for element in ocr_elements
+                if (
+                    element.bounds is not None
+                    and _bounds_contains_point(
+                        modal_bounds,
+                        element.bounds.center,
+                    )
+                )
+            )
+
         elements = (
-            tuple(ax_snapshot.elements)
+            tuple(ax_elements)
             + tuple(ocr_elements)
         )
 
         self._ocr_elements = {
             element.id: element
-            for element
-            in ocr_elements
+            for element in ocr_elements
         }
 
-        # Build one combined revision.
+        revision_payload = [
+            {
+                "id": element.id,
+                "source": element.source,
+                "guard": (
+                    element.id
+                    if element.source == "macos_ocr"
+                    else element.semantic_guard()
+                ),
+            }
+            for element in sorted(
+                elements,
+                key=lambda item: item.id,
+            )
+        ]
 
-        revision_payload = {
-            "ax_revision": ax_snapshot.revision,
-
-            # OCR text and bounding boxes jitter slightly between Vision passes.
-            # Stable visual-region IDs are enough for V1 change detection.
-            "ocr_elements": sorted(
-                element.id
-                for element in ocr_capture.elements
-            ),
-        }
+        revision_payload.append(
+            {
+                "modal_active": modal_active,
+                "modal_bounds": _bounds_payload(
+                    modal_bounds
+                ),
+            }
+        )
 
         revision = hashlib.sha256(
             json.dumps(
                 revision_payload,
                 sort_keys=True,
+                default=str,
             ).encode()
         ).hexdigest()
-
 
         context = dict(
             ax_snapshot.context
@@ -134,41 +181,39 @@ class MacOSHybridBackend:
 
         context.update(
             {
-                "backend":
-                    "macos_hybrid",
-
-                "ocr_window_id":
-                    ocr_capture.window_id,
-
-                "ocr_window_bounds":
-                    _bounds_payload(
-                        ocr_capture.window_bounds
-                    ),
-
+                "backend": "macos_hybrid",
+                "ocr_window_id": ocr_capture.window_id,
+                "ocr_window_bounds": _bounds_payload(
+                    ocr_capture.window_bounds
+                ),
                 "perception_sources": [
                     "macos_ax",
                     "macos_ocr",
                 ],
+                "modal_active": modal_active,
+                "modal_bounds": _bounds_payload(
+                    modal_bounds
+                ),
+                "modal_element_count": len(
+                    modal_elements
+                ),
             }
         )
 
         return DesktopSnapshot(
-            application=
-                ax_snapshot.application,
-
-            window=
-                ax_snapshot.window,
-
+            application=ax_snapshot.application,
+            window=(
+                ocr_capture.window_title
+                or ax_snapshot.window
+            ),
             revision=revision,
-
             elements=elements,
-
             context=context,
-
             captured_at_ms=round(
                 time.time() * 1000
             ),
         )
+
 
     def is_fresh(
         self,
@@ -537,6 +582,486 @@ def _iou(
         return 0.0
 
     return intersection / union
+
+
+def _ax_framework() -> Any:
+    try:
+        import ApplicationServices as AX  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError(
+            "ApplicationServices is required for macOS modal observation. "
+            "Install: pip install 'arc-cua[macos]'"
+        ) from exc
+
+    return AX
+
+
+def _ax_copy_attribute(
+    AX: Any,
+    element: Any,
+    attribute: str,
+) -> Any:
+    try:
+        result = AX.AXUIElementCopyAttributeValue(
+            element,
+            attribute,
+            None,
+        )
+    except Exception:
+        return None
+
+    if isinstance(
+        result,
+        tuple,
+    ):
+        if len(result) < 2:
+            return None
+
+        try:
+            error_code = int(
+                result[0]
+            )
+        except Exception:
+            error_code = 0
+
+        if error_code != 0:
+            return None
+
+        return result[1]
+
+    return result
+
+
+def _ax_values(
+    value: Any,
+) -> list[Any]:
+    if value is None:
+        return []
+
+    if isinstance(
+        value,
+        (
+            list,
+            tuple,
+        ),
+    ):
+        return list(value)
+
+    try:
+        return list(value)
+    except Exception:
+        return [value]
+
+
+def _ax_role(
+    AX: Any,
+    element: Any,
+) -> str:
+    value = _ax_copy_attribute(
+        AX,
+        element,
+        getattr(
+            AX,
+            "kAXRoleAttribute",
+            "AXRole",
+        ),
+    )
+
+    return str(
+        value or ""
+    )
+
+
+def _ax_is_modal(
+    AX: Any,
+    element: Any,
+) -> bool:
+    role = _ax_role(
+        AX,
+        element,
+    )
+
+    if role in {
+        "AXSheet",
+        "AXDialog",
+        "AXPopover",
+    }:
+        return True
+
+    modal = _ax_copy_attribute(
+        AX,
+        element,
+        "AXModal",
+    )
+
+    try:
+        return bool(modal)
+    except Exception:
+        return False
+
+
+def _ax_children(
+    AX: Any,
+    element: Any,
+) -> list[Any]:
+    children: list[Any] = []
+
+    for attribute in (
+        getattr(
+            AX,
+            "kAXSheetsAttribute",
+            "AXSheets",
+        ),
+        getattr(
+            AX,
+            "kAXChildrenAttribute",
+            "AXChildren",
+        ),
+    ):
+        value = _ax_copy_attribute(
+            AX,
+            element,
+            attribute,
+        )
+
+        children.extend(
+            _ax_values(value)
+        )
+
+    return children
+
+
+def _find_modal_roots(
+    AX: Any,
+    app: Any,
+) -> list[Any]:
+    seeds: list[
+        tuple[Any, int]
+    ] = []
+
+    focused_window = _ax_copy_attribute(
+        AX,
+        app,
+        getattr(
+            AX,
+            "kAXFocusedWindowAttribute",
+            "AXFocusedWindow",
+        ),
+    )
+
+    if focused_window is not None:
+        seeds.append(
+            (
+                focused_window,
+                0,
+            )
+        )
+
+    app_windows = _ax_copy_attribute(
+        AX,
+        app,
+        getattr(
+            AX,
+            "kAXWindowsAttribute",
+            "AXWindows",
+        ),
+    )
+
+    for window in _ax_values(
+        app_windows
+    ):
+        seeds.append(
+            (
+                window,
+                0,
+            )
+        )
+
+    roots: list[Any] = []
+    queue = list(
+        seeds
+    )
+    visited: set[str] = set()
+
+    max_nodes = 400
+    max_depth = 8
+    seen = 0
+
+    while (
+        queue
+        and seen < max_nodes
+    ):
+        element, depth = queue.pop(
+            0
+        )
+        seen += 1
+
+        key = repr(
+            element
+        )
+
+        if key in visited:
+            continue
+
+        visited.add(
+            key
+        )
+
+        if _ax_is_modal(
+            AX,
+            element,
+        ):
+            roots.append(
+                element
+            )
+            continue
+
+        if depth >= max_depth:
+            continue
+
+        for child in _ax_children(
+            AX,
+            element,
+        ):
+            queue.append(
+                (
+                    child,
+                    depth + 1,
+                )
+            )
+
+    unique: list[Any] = []
+    seen_keys: set[str] = set()
+
+    for root in roots:
+        key = repr(
+            root
+        )
+
+        if key in seen_keys:
+            continue
+
+        seen_keys.add(
+            key
+        )
+        unique.append(
+            root
+        )
+
+    return unique
+
+
+def _modal_element_id(
+    ref: Any,
+) -> str:
+    return (
+        "ax_modal_"
+        + hashlib.sha1(
+            repr(ref).encode()
+        ).hexdigest()[:14]
+    )
+
+
+def _collect_modal_ax_elements(
+    ax_backend: Any,
+    pid: int,
+) -> tuple[
+    tuple[DesktopElement, ...],
+    Bounds | None,
+]:
+    AX = _ax_framework()
+
+    try:
+        app = AX.AXUIElementCreateApplication(
+            pid
+        )
+    except Exception:
+        return (), None
+
+    roots = _find_modal_roots(
+        AX,
+        app,
+    )
+
+    if not roots:
+        return (), None
+
+    elements: list[
+        DesktopElement
+    ] = []
+
+    root_bounds: list[
+        Bounds
+    ] = []
+
+    queue: list[
+        tuple[
+            Any,
+            str | None,
+            int,
+            bool,
+        ]
+    ] = [
+        (
+            root,
+            None,
+            0,
+            True,
+        )
+        for root in roots
+    ]
+
+    visited: set[str] = set()
+
+    max_elements = 400
+    max_depth = 14
+
+    while (
+        queue
+        and len(elements) < max_elements
+    ):
+        (
+            ref,
+            parent_id,
+            depth,
+            is_root,
+        ) = queue.pop(0)
+
+        ref_key = repr(
+            ref
+        )
+
+        if ref_key in visited:
+            continue
+
+        visited.add(
+            ref_key
+        )
+
+        element_id = _modal_element_id(
+            ref
+        )
+
+        try:
+            ax_backend._refs[
+                element_id
+            ] = ref
+        except Exception:
+            pass
+
+        try:
+            element = ax_backend._element_from_ref(
+                ref,
+                element_id,
+                parent_id=parent_id,
+            )
+        except Exception:
+            element = None
+
+        next_parent = parent_id
+
+        if element is not None:
+            elements.append(
+                element
+            )
+            next_parent = (
+                element.id
+            )
+
+            if (
+                is_root
+                and element.bounds is not None
+            ):
+                root_bounds.append(
+                    element.bounds
+                )
+
+        if depth >= max_depth:
+            continue
+
+        for child in _ax_children(
+            AX,
+            ref,
+        ):
+            queue.append(
+                (
+                    child,
+                    next_parent,
+                    depth + 1,
+                    False,
+                )
+            )
+
+    modal_bounds = _union_bounds(
+        root_bounds
+    )
+
+    if modal_bounds is None:
+        modal_bounds = _union_bounds(
+            [
+                element.bounds
+                for element in elements
+                if element.bounds is not None
+            ]
+        )
+
+    return (
+        tuple(elements),
+        modal_bounds,
+    )
+
+
+def _union_bounds(
+    bounds_list: list[Bounds],
+) -> Bounds | None:
+    if not bounds_list:
+        return None
+
+    left = min(
+        bounds.x
+        for bounds in bounds_list
+    )
+    top = min(
+        bounds.y
+        for bounds in bounds_list
+    )
+    right = max(
+        bounds.x + bounds.width
+        for bounds in bounds_list
+    )
+    bottom = max(
+        bounds.y + bounds.height
+        for bounds in bounds_list
+    )
+
+    return Bounds(
+        x=left,
+        y=top,
+        width=max(
+            1.0,
+            right - left,
+        ),
+        height=max(
+            1.0,
+            bottom - top,
+        ),
+    )
+
+
+def _bounds_contains_point(
+    bounds: Bounds,
+    point: tuple[float, float],
+) -> bool:
+    x, y = point
+
+    return (
+        bounds.x <= x <= (
+            bounds.x + bounds.width
+        )
+        and bounds.y <= y <= (
+            bounds.y + bounds.height
+        )
+    )
 
 
 def _quartz() -> Any:
