@@ -69,6 +69,7 @@ class DesktopElement:
             "id": self.id,
             "role": self.role,
             "name": self.name,
+            "source": self.source,
             "actions": [a.value for a in self.actions],
         }
         optional = {
@@ -211,21 +212,57 @@ class ActionRecord:
     state_changed: bool
     elapsed_ms: int
 
+    target_name: str | None = None
+    target_source: str | None = None
+    target_bounds: Bounds | None = None
+
     def compact(self) -> dict[str, Any]:
+
+        bounds = None
+
+        if self.target_bounds is not None:
+            bounds = {
+                "x": round(self.target_bounds.x, 1),
+                "y": round(self.target_bounds.y, 1),
+                "width": round(
+                    self.target_bounds.width,
+                    1,
+                ),
+                "height": round(
+                    self.target_bounds.height,
+                    1,
+                ),
+            }
+
         return {
             "step": self.step,
             "action": self.action.kind.value,
+
             "target": self.action.target_id,
-            "secondary_target": self.action.secondary_target_id,
+            "target_name": self.target_name,
+            "target_source": self.target_source,
+            "target_bounds": bounds,
+
+            "secondary_target":
+                self.action.secondary_target_id,
+
             "value": self.action.value,
-            "before_revision": self.before_revision,
-            "after_revision": self.after_revision,
-            "state_changed": self.state_changed,
-            "jev_latency_ms": self.decision.latency_ms,
-            "elapsed_ms": self.elapsed_ms,
+
+            "before_revision":
+                self.before_revision,
+
+            "after_revision":
+                self.after_revision,
+
+            "state_changed":
+                self.state_changed,
+
+            "jev_latency_ms":
+                self.decision.latency_ms,
+
+            "elapsed_ms":
+                self.elapsed_ms,
         }
-
-
 @dataclass(frozen=True, slots=True)
 class ExecutionResult:
     status: TerminalKind

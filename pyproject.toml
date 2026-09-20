@@ -15,6 +15,7 @@ macos = [
   "pyobjc-framework-ApplicationServices>=11",
   "pyobjc-framework-Cocoa>=11",
   "pyobjc-framework-Quartz>=11",
+  "pyobjc-framework-Vision>=11",
 ]
 
 [build-system]

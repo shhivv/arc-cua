@@ -1,9 +1,12 @@
 from .memory import StateMachineBackend
-
-__all__ = ["StateMachineBackend"]
-
-# Import lazily on macOS users' machines; importing the module itself is safe on
-# other platforms because PyObjC is loaded only when the backend is instantiated.
 from .macos_ax import MacOSAXBackend
+from .macos_ocr import MacOSOCRProvider
+from .macos_hybrid import MacOSHybridBackend
 
-__all__.append("MacOSAXBackend")
+
+__all__ = [
+    "StateMachineBackend",
+    "MacOSAXBackend",
+    "MacOSOCRProvider",
+    "MacOSHybridBackend",
+    ]

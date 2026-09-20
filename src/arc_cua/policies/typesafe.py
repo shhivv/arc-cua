@@ -26,7 +26,14 @@ POLICY_RULES = """Execute the supplied desktop subtask using exactly one next op
 The external agent supplied the goal, literal inputs, constraints, and verification criteria.
 Never invent text, numeric values, filenames, paths, names, or verification criteria.
 Choose only currently observed element ids and only actions offered for those elements.
-Do not repeat an action whose intended state is already visibly satisfied.
+
+Prefer accessibility elements over OCR elements when both describe the same control.
+An OCR visible_text element is visual evidence and may not itself be interactive.
+Use OCR targets when accessibility does not expose the needed target.
+
+Do not repeat an action on the same target when recent actions show that it produced no semantic UI change.
+Do not alternate repeatedly between two targets without making progress.
+
 SUBTASK_COMPLETE means the agent-supplied verification criteria are observably satisfied now.
 If the criteria require semantic/visual judgement that the current structured state cannot establish, choose NEEDS_AGENT.
 BLOCKED means no supported operation can make progress. Prefer progress over WAIT.

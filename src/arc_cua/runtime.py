@@ -71,6 +71,15 @@ class DesktopExecutor:
             # Consume the decision exactly once before mutation. If execution succeeds
             # but the next observation fails, callers cannot accidentally replay it.
             before = snapshot
+            target = None
+
+            if action.target_id is not None:
+                try:
+                    target = before.element(
+                        action.target_id
+                    )
+                except KeyError:
+                    target = None
             try:
                 self.backend.execute(before, action)
             except StaleDesktopState:
@@ -90,13 +99,45 @@ class DesktopExecutor:
                     step=len(history) + 1,
                     decision=decision,
                     action=action,
-                    before_revision=before.revision,
-                    after_revision=snapshot.revision,
-                    state_changed=before.revision != snapshot.revision,
-                    elapsed_ms=round((time.perf_counter() - started) * 1000),
+
+                    before_revision=
+                        before.revision,
+
+                    after_revision=
+                        snapshot.revision,
+
+                    state_changed=(
+                        before.revision
+                        != snapshot.revision
+                    ),
+
+                    elapsed_ms=round(
+                        (
+                            time.perf_counter()
+                            - started
+                        )
+                        * 1000
+                    ),
+
+                    target_name=(
+                        target.name
+                        if target
+                        else None
+                    ),
+
+                    target_source=(
+                        target.source
+                        if target
+                        else None
+                    ),
+
+                    target_bounds=(
+                        target.bounds
+                        if target
+                        else None
+                    ),
                 )
             )
-
             recent = history[-self.config.no_change_limit :]
             if (
                 len(recent) == self.config.no_change_limit
