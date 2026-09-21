@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>arc-cua</title>
+<meta name="description" content="Superfast action layer for computer-use agents. LLM-agnostic low-latency execution runtime for desktop automation.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+:root {
+  --bg: #fafaf9;
+  --bg-code: #f0efed;
+  --bg-nav: rgba(250,250,249,0.92);
+  --text: #1c1917;
+  --text-secondary: #57534e;
+  --text-tertiary: #a8a29e;
+  --border: #e7e5e4;
+  --accent: #2563eb;
+  --accent-soft: rgba(37,99,235,0.08);
+  --code-text: #1c1917;
+  --highlight: #fef3c7;
+  --table-stripe: rgba(0,0,0,0.02);
+  --shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c0a09;
+    --bg-code: #1c1917;
+    --bg-nav: rgba(12,10,9,0.92);
+    --text: #e7e5e4;
+    --text-secondary: #a8a29e;
+    --text-tertiary: #78716c;
+    --border: #292524;
+    --accent: #60a5fa;
+    --accent-soft: rgba(96,165,250,0.1);
+    --code-text: #e7e5e4;
+    --highlight: #451a03;
+    --table-stripe: rgba(255,255,255,0.02);
+    --shadow: 0 1px 2px rgba(0,0,0,0.3);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c0a09;
+  --bg-code: #1c1917;
+  --bg-nav: rgba(12,10,9,0.92);
+  --text: #e7e5e4;
+  --text-secondary: #a8a29e;
+  --text-tertiary: #78716c;
+  --border: #292524;
+  --accent: #60a5fa;
+  --accent-soft: rgba(96,165,250,0.1);
+  --code-text: #e7e5e4;
+  --highlight: #451a03;
+  --table-stripe: rgba(255,255,255,0.02);
+  --shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
+body {
+  margin: 0;
+  padding: 0 20px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Nav */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--bg-nav);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  margin: 0 -20px;
+  padding: 0 20px;
+}
+.nav-inner {
+  max-width: 920px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+}
+.nav-brand {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+.nav-links { display: flex; gap: 24px; align-items: center; }
+.nav-links a {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.nav-links a:hover { color: var(--text); text-decoration: none; }
+.nav-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Layout */
+.container { max-width: 920px; margin: 0 auto; }
+
+/* Header */
+.header { padding: 56px 0 40px; }
+.header h1 {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: clamp(28px, 5vw, 38px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin: 0 0 12px;
+  text-wrap: balance;
+}
+.header .lead {
+  font-size: 17px;
+  color: var(--text-secondary);
+  max-width: 560px;
+  line-height: 1.6;
+  margin: 0 0 24px;
+}
+.header-links { display: flex; gap: 16px; flex-wrap: wrap; }
+.header-links a {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  transition: border-color 0.15s, color 0.15s;
+}
+.header-links a:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* Sections */
+section { padding: 40px 0; border-top: 1px solid var(--border); }
+section:first-of-type { border-top: none; }
+h2 {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 20px;
+  text-wrap: balance;
+}
+h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 32px 0 12px;
+  letter-spacing: -0.01em;
+}
+h3:first-child { margin-top: 0; }
+p { margin: 0 0 16px; max-width: 65ch; }
+p:last-child { margin-bottom: 0; }
+
+/* Code */
+code {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.88em;
+  background: var(--bg-code);
+  color: var(--code-text);
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px 20px;
+  overflow-x: auto;
+  margin: 0 0 20px;
+  line-height: 1.55;
+}
+pre code {
+  background: none;
+  padding: 0;
+  font-size: 13px;
+}
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: 0 0 20px; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--border);
+}
+td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+td code { font-size: 12px; }
+tr:nth-child(even) td { background: var(--table-stripe); }
+
+/* Architecture diagram */
+.diagram {
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 24px;
+  margin: 0 0 20px;
+  overflow-x: auto;
+}
+.diagram pre {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: center;
+}
+
+/* Two-col layout */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 20px; }
+@media (max-width: 640px) { .two-col { grid-template-columns: 1fr; } }
+
+/* API class block */
+.api-block { margin: 0 0 32px; }
+.api-block h3 { margin-top: 0; }
+.api-sig {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.field-list { margin: 12px 0; padding: 0; list-style: none; }
+.field-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.field-list li:last-child { border-bottom: none; }
+.field-name {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 500;
+  font-size: 13px;
+  min-width: 160px;
+}
+.field-type {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.field-desc { color: var(--text-secondary); flex: 1; min-width: 200px; }
+
+/* Callout */
+.callout {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  padding: 14px 18px;
+  border-radius: 0 6px 6px 0;
+  margin: 0 0 20px;
+  font-size: 14px;
+}
+.callout p { margin: 0; }
+
+/* LLM links */
+.llm-links {
+  display: flex;
+  gap: 12px;
+  margin: 20px 0 0;
+  flex-wrap: wrap;
+}
+.llm-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.llm-links a:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+/* Mobile nav toggle */
+.nav-toggle { display: none; background: none; border: none; cursor: pointer; padding: 4px; color: var(--text); }
+@media (max-width: 640px) {
+  .nav-links { display: none; }
+  .nav-links.open {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: 52px;
+    left: 0;
+    right: 0;
+    background: var(--bg-nav);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px;
+    gap: 12px;
+  }
+  .nav-toggle { display: block; }
+}
+
+/* Footer */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 32px 0 48px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+footer a { color: var(--text-tertiary); }
+footer a:hover { color: var(--text); }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="nav-brand">arc-cua</a>
+    <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Menu">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
+    </button>
+    <div class="nav-links">
+      <a href="#quickstart">Quickstart</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#api">API</a>
+      <a href="#extending">Extending</a>
+      <a href="https://github.com/shhivv/arc-cua">GitHub</a>
+      <span class="nav-badge">v0.1.0</span>
+    </div>
+  </div>
+</nav>
+
+<div class="container">
+
+<div class="header">
+  <h1>Superfast action layer for computer-use agents</h1>
+  <p class="lead">Hand off bounded desktop subtasks to a fast decision model. No frontier model needed for every click.</p>
+  <div class="header-links">
+    <a href="https://github.com/shhivv/arc-cua">Source</a>
+    <a href="https://tryisle.com">Built by Isle</a>
+    <a href="/llms.txt">llms.txt</a>
+    <a href="/llms-full.txt">llms-full.txt</a>
+  </div>
+</div>
+
+<section>
+  <p><code>arc-cua</code> lets a planner or CUA agent hand off bounded desktop subtasks to a fast decision model (JEV) that executes the UI loop. The planner owns intent &mdash; what to do, what text to use, what counts as success. The executor owns observation, fast decisions, freshness checks, native UI execution, and bounded termination.</p>
+  <pre><code>from arc_cua import execute_payload
+
+result = execute_payload(executor, {
+    "goal": "Play Get Lucky by Daft Punk in Spotify",
+    "inputs": {"search_query": "Get Lucky Daft Punk"},
+    "verification": ["Spotify shows Get Lucky as the current track"],
+    "constraints": ["Do not modify the user's library"],
+    "max_actions": 15,
+})
+
+# result: {"status": "SUBTASK_COMPLETE", "actions_taken": 4}</code></pre>
+
+  <p>Any GPT, Claude, Gemini, local model, or deterministic planner can generate that payload. The planner deliberately lives outside the package.</p>
+
+  <h3>For agents and LLMs</h3>
+  <p>Machine-readable documentation optimized for LLM context windows:</p>
+  <div class="llm-links">
+    <a href="/llms.txt">/llms.txt &mdash; overview &amp; key concepts</a>
+    <a href="/llms-full.txt">/llms-full.txt &mdash; complete reference</a>
+  </div>
+</section>
+
+<section id="quickstart">
+  <h2>Quickstart</h2>
+  <p>Currently macOS-first. Requires Python 3.12+.</p>
+  <pre><code>python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[macos]'
+export TYPESAFE_API_KEY=...</code></pre>
+
+  <h3>macOS permissions</h3>
+  <p>The terminal or editor running Python needs both:</p>
+  <ul>
+    <li><strong>Accessibility</strong> &mdash; System Settings &rarr; Privacy &amp; Security &rarr; Accessibility</li>
+    <li><strong>Screen Recording</strong> &mdash; System Settings &rarr; Privacy &amp; Security &rarr; Screen Recording</li>
+  </ul>
+  <p>Restart the terminal after granting permissions if necessary.</p>
+
+  <h3>Live desktop execution</h3>
+  <pre><code>from arc_cua import DesktopExecutor, Subtask, RuntimeConfig
+from arc_cua.backends import MacOSHybridBackend
+from arc_cua.policies import TypeSafeJevPolicy
+
+executor = DesktopExecutor(
+    MacOSHybridBackend(),
+    TypeSafeJevPolicy(),
+    config=RuntimeConfig(timeout_s=30),
+)
+
+task = Subtask(
+    goal="Search for Gaussian Blur in the effects panel",
+    verification=("Effects panel shows Gaussian Blur",),
+    inputs={"effect_name": "Gaussian Blur"},
+    constraints=("Do not modify any clip",),
+)
+
+result = executor.run(task)
+print(result.status, result.actions_taken)</code></pre>
+
+  <h3>Deterministic demo (no API key)</h3>
+  <pre><code>from arc_cua import (
+    ActionKind, Decision, DesktopElement, DesktopExecutor,
+    DesktopSnapshot, Subtask, TerminalKind,
+)
+from arc_cua.backends import StateMachineBackend
+from arc_cua.policies import ScriptedPolicy
+
+def make_snapshot(state):
+    return DesktopSnapshot(
+        application="App", window="Main", revision=state["q"],
+        elements=(
+            DesktopElement(
+                id="search", role="text_field", name="Search",
+                value=state["q"], actions=(ActionKind.TYPE_TEXT,),
+                source="demo",
+            ),
+        ),
+    )
+
+def transition(state, action):
+    if action.kind == ActionKind.TYPE_TEXT:
+        state["q"] = action.value
+
+backend = StateMachineBackend({"q": ""}, make_snapshot, transition)
+policy = ScriptedPolicy([
+    Decision(kind=ActionKind.TYPE_TEXT, target_id="search", input_key="query"),
+    Decision(terminal=TerminalKind.SUBTASK_COMPLETE),
+])
+task = Subtask(
+    goal="Search for cats",
+    verification=("Search field contains cats",),
+    inputs={"query": "cats"},
+)
+
+result = DesktopExecutor(backend, policy).run(task)
+assert result.status == TerminalKind.SUBTASK_COMPLETE</code></pre>
+</section>
+
+<section id="architecture">
+  <h2>Architecture</h2>
+
+  <div class="diagram">
+    <pre><code>planner / LLM
+      |
+      | Subtask(goal, inputs, verification, constraints)
+      v
++------------------------+
+|       arc-cua          |
+|                        |
+| observe desktop        |
+| (AX + Vision OCR)     |
+|         v              |
+| build legal            |
+| action space           |
+|         v              |
+| JEV decision           |&lt;------+
+|         v              |       |
+| freshness guard        |       |
+|         v              |       |
+| execute UI action      |       |
+|         v              |       |
+| wait for UI settle     |-------+
++------------+-----------+
+             |
+             v
+  SUBTASK_COMPLETE / BLOCKED / NEEDS_AGENT
+             |
+             v
+          planner</code></pre>
+  </div>
+
+  <h3>The agent owns intent</h3>
+  <p>The upstream agent decides what needs to happen, what literal text may be used, what must not happen, and what counts as success. JEV chooses which element to target and which operation to perform &mdash; but never invents arbitrary text. Literal values always originate from the agent via <code>Subtask.inputs</code>.</p>
+
+  <h3>JEV</h3>
+  <p>JEV is the decision backend that powers the action loop. Given structured desktop state (elements, roles, values), it selects the next UI operation from a dynamically built action space &mdash; it can only pick targets and operations the current desktop actually exposes. JEV is accessed through <a href="https://typesafe.com">TypeSafe</a>. One JEV call can resolve the operation and its parameters in parallel (speculative fan-out).</p>
+
+  <h3>Hybrid macOS perception</h3>
+  <div class="two-col">
+    <div>
+      <p><strong>Accessibility (AX)</strong></p>
+      <p>Semantic controls: buttons, fields, menus, roles, values, native actions. Covers well-built apps with proper accessibility trees.</p>
+    </div>
+    <div>
+      <p><strong>Apple Vision OCR</strong></p>
+      <p>Visible screen text with bounding boxes. Covers apps with incomplete accessibility &mdash; Electron apps, custom canvases, web views.</p>
+    </div>
+  </div>
+  <p>Both normalize into <code>DesktopElement</code>s that JEV reasons over. JEV receives structured elements and IDs, not screenshots.</p>
+
+  <h3>Freshness guards</h3>
+  <p>Every actionable target has a semantic or visual guard (SHA-256 fingerprint of element state). Before executing a chosen mutation, the backend checks that the target still corresponds to the UI state JEV observed. A stale action is never blindly replayed.</p>
+
+  <h3>Post-action settling</h3>
+  <p>After a mutating action, the runtime re-observes the desktop until structurally stable or a timeout is reached. The decision model decides <em>what to do</em>; the runtime decides <em>when the UI is ready to reason over again</em>.</p>
+
+  <h3>Terminal states</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>SUBTASK_COMPLETE</code></td><td>Verification criteria appear satisfied</td></tr>
+        <tr><td><code>BLOCKED</code></td><td>Cannot make progress with available operations</td></tr>
+        <tr><td><code>NEEDS_AGENT</code></td><td>Higher-level reasoning required or action budget reached</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="api">
+  <h2>API Reference</h2>
+  <p>All public types are available from the top-level <code>arc_cua</code> package:</p>
+  <pre><code>from arc_cua import (
+    ActionKind, Bounds, Decision, DesktopElement, DesktopExecutor,
+    DesktopSnapshot, ExecutableAction, ExecutionResult, RuntimeConfig,
+    StepEvent, Subtask, TerminalKind, VerifyFn,
+    execute_payload, result_to_dict, subtask_from_dict,
+)</code></pre>
+
+  <div class="api-block">
+    <h3>Subtask</h3>
+    <p>Contract supplied by the external agent/planner. The executor never invents verification criteria or free-form text.</p>
+    <ul class="field-list">
+      <li><span class="field-name">goal</span> <span class="field-type">str</span> <span class="field-desc">Natural-language description of what to accomplish</span></li>
+      <li><span class="field-name">verification</span> <span class="field-type">tuple[str, ...]</span> <span class="field-desc">Observable criteria the policy checks for completion</span></li>
+      <li><span class="field-name">inputs</span> <span class="field-type">Mapping[str, str|int|float|bool]</span> <span class="field-desc">Literal values the executor may use (default: empty)</span></li>
+      <li><span class="field-name">constraints</span> <span class="field-type">tuple[str, ...]</span> <span class="field-desc">Things the executor must not do (default: empty)</span></li>
+      <li><span class="field-name">max_actions</span> <span class="field-type">int</span> <span class="field-desc">Action budget (default: 30)</span></li>
+      <li><span class="field-name">metadata</span> <span class="field-type">Mapping[str, Any]</span> <span class="field-desc">Opaque pass-through for the caller</span></li>
+    </ul>
+  </div>
+
+  <div class="api-block">
+    <h3>DesktopElement</h3>
+    <p>A normalized, currently observable UI element. IDs are stable for the session lifetime and are never model-invented.</p>
+    <ul class="field-list">
+      <li><span class="field-name">id</span> <span class="field-type">str</span> <span class="field-desc">Stable identifier for this element</span></li>
+      <li><span class="field-name">role</span> <span class="field-type">str</span> <span class="field-desc">Semantic role (button, text_field, visible_text, ...)</span></li>
+      <li><span class="field-name">name</span> <span class="field-type">str</span> <span class="field-desc">Human-readable label</span></li>
+      <li><span class="field-name">value</span> <span class="field-type">str|int|float|bool|None</span> <span class="field-desc">Current value (text field contents, slider position, ...)</span></li>
+      <li><span class="field-name">actions</span> <span class="field-type">tuple[ActionKind, ...]</span> <span class="field-desc">Legal operations on this element</span></li>
+      <li><span class="field-name">enabled</span> <span class="field-type">bool</span> <span class="field-desc">Whether the element is interactive (default: True)</span></li>
+      <li><span class="field-name">visible</span> <span class="field-type">bool</span> <span class="field-desc">Whether the element is visible (default: True)</span></li>
+      <li><span class="field-name">source</span> <span class="field-type">str</span> <span class="field-desc">Perception source: macos_ax, macos_ocr, etc.</span></li>
+      <li><span class="field-name">bounds</span> <span class="field-type">Bounds|None</span> <span class="field-desc">Screen coordinates (x, y, width, height)</span></li>
+      <li><span class="field-name">accepts_drop</span> <span class="field-type">bool</span> <span class="field-desc">Valid DRAG_TO destination</span></li>
+    </ul>
+  </div>
+
+  <div class="api-block">
+    <h3>DesktopSnapshot</h3>
+    <p>Immutable capture of the current desktop state.</p>
+    <ul class="field-list">
+      <li><span class="field-name">application</span> <span class="field-type">str</span> <span class="field-desc">Frontmost application name</span></li>
+      <li><span class="field-name">window</span> <span class="field-type">str</span> <span class="field-desc">Active window title</span></li>
+      <li><span class="field-name">revision</span> <span class="field-type">str</span> <span class="field-desc">SHA-256 fingerprint of element state</span></li>
+      <li><span class="field-name">elements</span> <span class="field-type">tuple[DesktopElement, ...]</span> <span class="field-desc">All observable elements</span></li>
+      <li><span class="field-name">context</span> <span class="field-type">Mapping[str, Any]</span> <span class="field-desc">Backend metadata (pid, window_id, ...)</span></li>
+    </ul>
+    <p><code>element(element_id) -&gt; DesktopElement</code> &mdash; O(1) lookup by ID. Raises <code>KeyError</code>.</p>
+    <p><code>compact() -&gt; dict</code> &mdash; Planner-friendly summary (visible elements only).</p>
+  </div>
+
+  <div class="api-block">
+    <h3>ActionKind</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Value</th><th>Target</th><th>Additional</th></tr></thead>
+        <tbody>
+          <tr><td><code>CLICK</code></td><td>yes</td><td>&mdash;</td></tr>
+          <tr><td><code>DOUBLE_CLICK</code></td><td>yes</td><td>&mdash;</td></tr>
+          <tr><td><code>RIGHT_CLICK</code></td><td>yes</td><td>&mdash;</td></tr>
+          <tr><td><code>TYPE_TEXT</code></td><td>yes</td><td>input_key (resolved from Subtask.inputs)</td></tr>
+          <tr><td><code>SET_VALUE</code></td><td>yes</td><td>input_key (resolved from Subtask.inputs)</td></tr>
+          <tr><td><code>PRESS_KEY</code></td><td>no</td><td>key (ENTER, ESCAPE, TAB, ...)</td></tr>
+          <tr><td><code>HOTKEY</code></td><td>no</td><td>hotkey (MOD+C, MOD+V, ...)</td></tr>
+          <tr><td><code>SCROLL</code></td><td>no</td><td>scroll_direction (UP, DOWN, LEFT, RIGHT)</td></tr>
+          <tr><td><code>DRAG_TO</code></td><td>yes</td><td>secondary_target_id</td></tr>
+          <tr><td><code>DRAG_BY</code></td><td>yes</td><td>drag_dx, drag_dy</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>MOD means Cmd on macOS, Ctrl elsewhere.</p>
+  </div>
+
+  <div class="api-block">
+    <h3>DesktopExecutor</h3>
+    <p>The core executor. Takes a backend and a policy, runs subtasks.</p>
+    <pre><code>executor = DesktopExecutor(backend, policy, config=RuntimeConfig())
+
+result = executor.run(task)           # Returns ExecutionResult
+for event in executor.run_iter(task): # Yields StepEvent per cycle
+    print(event.step, event.action)
+executor.cancel()                     # Thread-safe stop signal</code></pre>
+    <p><code>run()</code> executes the subtask and returns the result. <code>run_iter()</code> is a generator yielding a <code>StepEvent</code> after each decision cycle for live observability. <code>cancel()</code> can be called from another thread to stop execution after the current action.</p>
+  </div>
+
+  <div class="api-block">
+    <h3>RuntimeConfig</h3>
+    <ul class="field-list">
+      <li><span class="field-name">stale_retries</span> <span class="field-type">int = 8</span> <span class="field-desc">Max freshness re-observations before giving up</span></li>
+      <li><span class="field-name">no_change_limit</span> <span class="field-type">int = 3</span> <span class="field-desc">Consecutive no-change actions before BLOCKED</span></li>
+      <li><span class="field-name">post_action_settle_s</span> <span class="field-type">float = 0.03</span> <span class="field-desc">Minimum settling delay</span></li>
+      <li><span class="field-name">timeout_s</span> <span class="field-type">float|None = None</span> <span class="field-desc">Wall-clock timeout (None = no limit)</span></li>
+      <li><span class="field-name">verify</span> <span class="field-type">VerifyFn|None = None</span> <span class="field-desc">Verification callback for SUBTASK_COMPLETE</span></li>
+    </ul>
+  </div>
+
+  <div class="api-block">
+    <h3>VerifyFn</h3>
+    <p class="api-sig">VerifyFn = Callable[[DesktopSnapshot, Subtask], bool]</p>
+    <p>When set on <code>RuntimeConfig</code>, called before accepting <code>SUBTASK_COMPLETE</code>. If it returns <code>False</code>, the result becomes <code>NEEDS_AGENT</code>.</p>
+  </div>
+
+  <div class="api-block">
+    <h3>StepEvent</h3>
+    <p>Emitted by <code>run_iter()</code> after each decision cycle.</p>
+    <ul class="field-list">
+      <li><span class="field-name">step</span> <span class="field-type">int</span> <span class="field-desc">Step counter</span></li>
+      <li><span class="field-name">snapshot</span> <span class="field-type">DesktopSnapshot</span> <span class="field-desc">Desktop state at decision time</span></li>
+      <li><span class="field-name">decision</span> <span class="field-type">Decision</span> <span class="field-desc">The policy's decision</span></li>
+      <li><span class="field-name">action</span> <span class="field-type">ExecutableAction|None</span> <span class="field-desc">Materialized action (None for terminal)</span></li>
+      <li><span class="field-name">record</span> <span class="field-type">ActionRecord|None</span> <span class="field-desc">Execution record (None for terminal)</span></li>
+      <li><span class="field-name">result</span> <span class="field-type">ExecutionResult|None</span> <span class="field-desc">Set only on the final event</span></li>
+    </ul>
+    <p><code>terminal</code> property returns <code>True</code> when <code>result</code> is set.</p>
+  </div>
+
+  <div class="api-block">
+    <h3>ExecutionResult</h3>
+    <ul class="field-list">
+      <li><span class="field-name">status</span> <span class="field-type">TerminalKind</span> <span class="field-desc">How execution ended</span></li>
+      <li><span class="field-name">subtask</span> <span class="field-type">Subtask</span> <span class="field-desc">The original subtask</span></li>
+      <li><span class="field-name">final_snapshot</span> <span class="field-type">DesktopSnapshot</span> <span class="field-desc">Desktop state at termination</span></li>
+      <li><span class="field-name">history</span> <span class="field-type">tuple[ActionRecord, ...]</span> <span class="field-desc">Complete action history</span></li>
+      <li><span class="field-name">observations</span> <span class="field-type">tuple[str, ...]</span> <span class="field-desc">Satisfaction notes for verification criteria</span></li>
+      <li><span class="field-name">reason</span> <span class="field-type">str|None</span> <span class="field-desc">Explanation for non-complete termination</span></li>
+    </ul>
+    <p><code>actions_taken</code> property returns <code>len(history)</code>.</p>
+  </div>
+
+  <div class="api-block">
+    <h3>JSON boundary</h3>
+    <p>Three functions for the agent-facing JSON contract:</p>
+    <pre><code># Parse agent payload into Subtask
+task = subtask_from_dict({
+    "goal": "...", "verification": ["..."],
+    "inputs": {...}, "constraints": [...], "max_actions": 15,
+})
+
+# Convert result to planner-friendly dict
+d = result_to_dict(result)
+# {"status", "actions_taken", "reason", "observations", "history", "final_snapshot"}
+
+# One-shot convenience
+d = execute_payload(executor, payload)</code></pre>
+  </div>
+
+  <div class="api-block">
+    <h3>Errors</h3>
+    <p>All inherit from <code>JevDesktopError(RuntimeError)</code>:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Error</th><th>Meaning</th><th>Runtime behavior</th></tr></thead>
+        <tbody>
+          <tr><td><code>StaleDesktopState</code></td><td>Target changed between observation and execution</td><td>Caught, triggers re-observation</td></tr>
+          <tr><td><code>InvalidDecision</code></td><td>Policy returned an illegal action</td><td>Propagates to caller</td></tr>
+          <tr><td><code>UnsupportedDesktopAction</code></td><td>Backend does not support the action kind</td><td>Propagates to caller</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Backends</h2>
+
+  <div class="api-block">
+    <h3>MacOSHybridBackend</h3>
+    <p>The default production backend. Combines Accessibility and Apple Vision OCR into a single element stream. Handles modal detection, OCR deduplication, and coordinate-based execution for OCR targets.</p>
+    <pre><code>from arc_cua.backends import MacOSHybridBackend
+backend = MacOSHybridBackend()</code></pre>
+  </div>
+
+  <div class="api-block">
+    <h3>MacOSAXBackend</h3>
+    <p>Pure Accessibility backend. Traverses the AX tree of the frontmost application.</p>
+    <pre><code>from arc_cua.backends import MacOSAXBackend
+backend = MacOSAXBackend(max_elements=1200, max_depth=18)</code></pre>
+    <p>Supports CLICK, DOUBLE_CLICK, RIGHT_CLICK, TYPE_TEXT, SET_VALUE, PRESS_KEY, HOTKEY, SCROLL.</p>
+  </div>
+
+  <div class="api-block">
+    <h3>StateMachineBackend</h3>
+    <p>Deterministic backend for tests and demos. No OS dependencies.</p>
+    <pre><code>from arc_cua.backends import StateMachineBackend
+
+backend = StateMachineBackend(
+    initial_state={"key": "value"},
+    snapshot_factory=my_snapshot_fn,  # (state) -&gt; DesktopSnapshot
+    transition=my_transition_fn,      # (state, action) -&gt; None
+)</code></pre>
+  </div>
+</section>
+
+<section>
+  <h2>Policies</h2>
+
+  <div class="api-block">
+    <h3>TypeSafeJevPolicy</h3>
+    <p>Production policy. Builds a dynamic action space from the current <code>DesktopSnapshot</code> and sends it to the JEV API.</p>
+    <pre><code>from arc_cua.policies import TypeSafeJevPolicy
+
+policy = TypeSafeJevPolicy(
+    api_key="...",          # or TYPESAFE_API_KEY env var
+    model="jev-latest",     # or TYPESAFE_MODEL env var
+    timeout_s=12.0,
+)</code></pre>
+  </div>
+
+  <div class="api-block">
+    <h3>ScriptedPolicy</h3>
+    <p>Deterministic policy for tests. Consumes decisions in order.</p>
+    <pre><code>from arc_cua.policies import ScriptedPolicy
+
+policy = ScriptedPolicy([
+    Decision(kind=ActionKind.CLICK, target_id="btn"),
+    Decision(terminal=TerminalKind.SUBTASK_COMPLETE),
+])</code></pre>
+  </div>
+</section>
+
+<section>
+  <h2>Protocols</h2>
+  <p>Extend arc-cua by implementing these protocols. No base class required &mdash; structural subtyping.</p>
+
+  <div class="api-block">
+    <h3>DesktopBackend</h3>
+    <pre><code>class DesktopBackend(Protocol):
+    def observe(self) -&gt; DesktopSnapshot: ...
+    def is_fresh(self, snapshot: DesktopSnapshot, action: ExecutableAction) -&gt; bool: ...
+    def execute(self, snapshot: DesktopSnapshot, action: ExecutableAction) -&gt; None: ...</code></pre>
+    <p><code>observe()</code> captures current desktop state. <code>is_fresh()</code> checks the target guard still matches reality. <code>execute()</code> performs the action &mdash; raise <code>StaleDesktopState</code> if the target changed, <code>InvalidDecision</code> if the action is illegal.</p>
+  </div>
+
+  <div class="api-block">
+    <h3>DecisionPolicy</h3>
+    <pre><code>class DecisionPolicy(Protocol):
+    def decide(
+        self, *,
+        subtask: Subtask,
+        snapshot: DesktopSnapshot,
+        history: Sequence[ActionRecord],
+    ) -&gt; Decision: ...</code></pre>
+    <p>Return <code>Decision(kind=..., target_id=...)</code> for an action, or <code>Decision(terminal=...)</code> to end execution.</p>
+  </div>
+</section>
+
+<section id="extending">
+  <h2>Extending</h2>
+
+  <h3>Custom backend</h3>
+  <p>Implement <code>observe()</code>, <code>is_fresh()</code>, and <code>execute()</code>. Return <code>DesktopElement</code>s with stable IDs. Use <code>semantic_guard()</code> for freshness checks.</p>
+  <pre><code>class MyBackend:
+    def observe(self) -&gt; DesktopSnapshot:
+        elements = self._scan_ui()
+        return DesktopSnapshot(
+            application="MyApp", window="Main",
+            revision=self._compute_revision(elements),
+            elements=tuple(elements),
+        )
+
+    def is_fresh(self, snapshot, action) -&gt; bool:
+        if action.target_id:
+            current = self.observe().element(action.target_id)
+            return current.semantic_guard() == action.target_guard
+        return True
+
+    def execute(self, snapshot, action) -&gt; None:
+        # Perform the UI action
+        ...</code></pre>
+
+  <h3>Custom policy</h3>
+  <p>Implement <code>decide()</code>. Return a <code>Decision</code> with either <code>kind</code> (action) or <code>terminal</code> (end).</p>
+
+  <h3>Logging</h3>
+  <p>arc-cua uses stdlib logging. Enable debug output:</p>
+  <pre><code>import logging
+logging.basicConfig(level=logging.DEBUG)</code></pre>
+  <p>Loggers: <code>arc_cua.runtime</code>, <code>arc_cua.backends.macos_ax</code>, <code>arc_cua.backends.macos_hybrid</code>, <code>arc_cua.backends.macos_ocr</code>, <code>arc_cua.policies.typesafe</code>.</p>
+
+  <h3>Dependencies</h3>
+  <div class="two-col">
+    <div>
+      <p><strong>Runtime</strong></p>
+      <pre><code>httpx[http2] &gt;= 0.28, &lt; 1</code></pre>
+    </div>
+    <div>
+      <p><strong>macOS extras</strong></p>
+      <pre><code>pyobjc-framework-ApplicationServices &gt;= 11
+pyobjc-framework-Cocoa &gt;= 11
+pyobjc-framework-Quartz &gt;= 11
+pyobjc-framework-Vision &gt;= 11</code></pre>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span>arc-cua &middot; Built by <a href="https://tryisle.com">Isle</a></span>
+  <span><a href="https://github.com/shhivv/arc-cua">GitHub</a></span>
+</footer>
+
+</div>
+</body>
+</html>

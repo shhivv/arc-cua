@@ -1,0 +1,43 @@
+# arc-cua
+
+> Superfast action layer for computer-use agents.
+
+arc-cua lets a planner or CUA agent hand off bounded desktop subtasks to a fast decision model (JEV) that executes the UI loop. No frontier model needed for every click. Built by Isle.
+
+## Key concepts
+
+- Subtask contract: The upstream agent defines goal, literal inputs, constraints, and verification criteria. The executor never invents text or verification.
+- JEV (Judge-Evaluate-Verify): Fast decision backend by TypeSafe. Given structured desktop state, it selects the next UI operation from a dynamically built action space.
+- Hybrid perception: macOS Accessibility (AX) for semantic controls + Apple Vision OCR for visible text. Both normalize into DesktopElements.
+- Freshness guards: SHA-256 fingerprints on element state prevent stale execution. A mutation is never applied against an outdated target.
+- Post-action settling: After a mutating action, the runtime re-observes the desktop until structurally stable.
+- Terminal states: SUBTASK_COMPLETE (verification criteria satisfied), BLOCKED (cannot progress), NEEDS_AGENT (higher-level reasoning required).
+- Observability: run_iter() yields StepEvents after each decision cycle for live monitoring.
+
+## Install
+
+```
+pip install -e '.[macos]'
+export TYPESAFE_API_KEY=...
+```
+
+Requires macOS with Accessibility and Screen Recording permissions.
+
+## Links
+
+- Full documentation: https://arc.tryisle.com/llms-full.txt
+- Source: https://github.com/shhivv/arc-cua
+- Isle: https://tryisle.com
+
+## Sections in llms-full.txt
+
+- Quick start
+- Architecture
+- Subtask contract
+- API reference: all types, classes, functions
+- Protocols: DesktopBackend, DecisionPolicy
+- Runtime configuration
+- Backends: MacOSHybridBackend, MacOSAXBackend, StateMachineBackend
+- Policies: TypeSafeJevPolicy, ScriptedPolicy
+- Error types
+- Extending arc-cua

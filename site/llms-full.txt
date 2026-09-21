@@ -1,0 +1,665 @@
+# arc-cua — Full Reference
+
+> Superfast action layer for computer-use agents.
+
+arc-cua lets a planner or CUA agent hand off bounded desktop subtasks to a fast decision model (JEV) that executes the UI loop. The planner owns intent (what to do, what text to use, what counts as success). The executor owns observation, fast decision-making, freshness checks, native UI execution, and bounded termination.
+
+Source: https://github.com/shhivv/arc-cua
+Built by Isle: https://tryisle.com
+
+---
+
+## Quick start
+
+### Install
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[macos]'
+export TYPESAFE_API_KEY=...
+```
+
+macOS permissions required:
+- Accessibility: System Settings > Privacy & Security > Accessibility
+- Screen Recording: System Settings > Privacy & Security > Screen Recording
+
+### Minimal example
+
+```python
+from arc_cua import execute_payload, DesktopExecutor, RuntimeConfig
+from arc_cua.backends import MacOSHybridBackend
+from arc_cua.policies import TypeSafeJevPolicy
+
+executor = DesktopExecutor(
+    MacOSHybridBackend(),
+    TypeSafeJevPolicy(),
+)
+
+result = execute_payload(executor, {
+    "goal": "Play Get Lucky by Daft Punk in Spotify",
+    "inputs": {"search_query": "Get Lucky Daft Punk"},
+    "verification": ["Spotify shows Get Lucky as the current track"],
+    "constraints": ["Do not modify the user's library"],
+    "max_actions": 15,
+})
+# result: {"status": "SUBTASK_COMPLETE", "actions_taken": 4, ...}
+```
+
+### Deterministic demo (no API key)
+
+```python
+from arc_cua import (
+    ActionKind, Decision, DesktopElement, DesktopExecutor,
+    DesktopSnapshot, Subtask, TerminalKind,
+)
+from arc_cua.backends import StateMachineBackend
+from arc_cua.policies import ScriptedPolicy
+
+def make_snapshot(state):
+    elements = [
+        DesktopElement(id="search", role="text_field", name="Search",
+                       value=state["q"], actions=(ActionKind.TYPE_TEXT,), source="demo"),
+    ]
+    return DesktopSnapshot(
+        application="App", window="Main",
+        revision=state["q"], elements=tuple(elements),
+    )
+
+def transition(state, action):
+    if action.kind == ActionKind.TYPE_TEXT:
+        state["q"] = action.value
+
+backend = StateMachineBackend({"q": ""}, make_snapshot, transition)
+policy = ScriptedPolicy([
+    Decision(kind=ActionKind.TYPE_TEXT, target_id="search", input_key="query"),
+    Decision(terminal=TerminalKind.SUBTASK_COMPLETE),
+])
+task = Subtask(
+    goal="Search for cats",
+    verification=("Search field contains cats",),
+    inputs={"query": "cats"},
+)
+
+result = DesktopExecutor(backend, policy).run(task)
+assert result.status == TerminalKind.SUBTASK_COMPLETE
+```
+
+---
+
+## Architecture
+
+```
+planner / LLM
+     |
+     | Subtask(goal, inputs, verification, constraints)
+     v
++------------------------+
+|       arc-cua          |
+|                        |
+| observe desktop        |
+| (AX + Vision OCR)     |
+|         v              |
+| build legal            |
+| action space           |
+|         v              |
+| JEV decision           |<------+
+|         v              |       |
+| freshness guard        |       |
+|         v              |       |
+| execute UI action      |       |
+|         v              |       |
+| wait for UI settle     |-------+
++------------+-----------+
+             |
+             v
+  SUBTASK_COMPLETE / BLOCKED / NEEDS_AGENT
+             |
+             v
+          planner
+```
+
+Key design principles:
+- The planner owns intent. arc-cua never invents text, filenames, or verification criteria.
+- JEV can only pick targets and operations the current desktop actually exposes.
+- Literal values always come from the agent via Subtask.inputs.
+- One JEV call resolves operation + all operation-specific targets in parallel (speculative fan-out).
+- Post-action settling is polling-based observation until structural stability.
+
+---
+
+## Subtask contract
+
+The upstream agent creates a Subtask that defines:
+
+| Field | Type | Description |
+|---|---|---|
+| goal | str | Natural-language description of what to accomplish |
+| verification | tuple[str, ...] | Observable criteria the policy checks for completion |
+| inputs | Mapping[str, str\|int\|float\|bool] | Literal values the executor may use (e.g. search text) |
+| constraints | tuple[str, ...] | Things the executor must not do |
+| max_actions | int | Action budget (default 30) |
+| metadata | Mapping[str, Any] | Opaque pass-through for the caller |
+
+Validation:
+- goal cannot be empty
+- verification must have at least one criterion
+- max_actions must be >= 1
+
+---
+
+## API reference
+
+### Top-level imports
+
+All public types are available from `arc_cua`:
+
+```python
+from arc_cua import (
+    ActionKind, Bounds, Decision, DesktopElement, DesktopExecutor,
+    DesktopSnapshot, ExecutableAction, ExecutionResult, RuntimeConfig,
+    StepEvent, Subtask, TerminalKind, VerifyFn,
+    execute_payload, result_to_dict, subtask_from_dict,
+)
+```
+
+### ActionKind (StrEnum)
+
+UI operations the executor can perform:
+
+| Value | Requires target | Additional fields |
+|---|---|---|
+| CLICK | yes | — |
+| DOUBLE_CLICK | yes | — |
+| RIGHT_CLICK | yes | — |
+| TYPE_TEXT | yes | input_key (resolved to literal value from Subtask.inputs) |
+| SET_VALUE | yes | input_key (resolved to literal value from Subtask.inputs) |
+| PRESS_KEY | no | key (e.g. "ENTER", "ESCAPE", "TAB") |
+| HOTKEY | no | hotkey (e.g. "MOD+C", "MOD+V") |
+| SCROLL | no | scroll_direction ("UP", "DOWN", "LEFT", "RIGHT") |
+| DRAG_TO | yes | secondary_target_id (drop target) |
+| DRAG_BY | yes | drag_dx, drag_dy (pixel offsets) |
+| WAIT | no | — |
+
+### TerminalKind (StrEnum)
+
+| Value | Meaning |
+|---|---|
+| SUBTASK_COMPLETE | Verification criteria appear satisfied |
+| BLOCKED | Cannot make progress with available operations |
+| NEEDS_AGENT | Higher-level reasoning required or action budget reached |
+
+### Bounds
+
+```python
+@dataclass(frozen=True, slots=True)
+class Bounds:
+    x: float
+    y: float
+    width: float
+    height: float
+
+    @property
+    def center(self) -> tuple[float, float]: ...
+```
+
+### DesktopElement
+
+A normalized, currently observable UI element.
+
+```python
+@dataclass(frozen=True, slots=True)
+class DesktopElement:
+    id: str                    # Stable for session lifetime, never model-invented
+    role: str                  # Semantic role (e.g. "button", "text_field", "visible_text")
+    name: str = ""             # Human-readable label
+    value: str | int | float | bool | None = None
+    actions: tuple[ActionKind, ...] = ()  # Legal operations on this element
+    enabled: bool = True
+    visible: bool = True
+    focused: bool = False
+    selected: bool | None = None
+    expanded: bool | None = None
+    parent_id: str | None = None
+    bounds: Bounds | None = None
+    source: str = "unknown"    # e.g. "macos_ax", "macos_ocr"
+    accepts_drop: bool = False # Valid DRAG_TO destination
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    guard: str = ""            # Pre-computed guard (OCR uses spatial guard)
+```
+
+Methods:
+- `compact() -> dict` — Model-visible summary (visible elements only in snapshot)
+- `semantic_guard() -> str` — SHA-256 fingerprint of element state for freshness checks
+
+### DesktopSnapshot
+
+```python
+@dataclass(frozen=True, slots=True)
+class DesktopSnapshot:
+    application: str
+    window: str
+    revision: str              # Hash fingerprint of full element state
+    elements: tuple[DesktopElement, ...]
+    context: Mapping[str, Any] = {}   # Backend metadata (pid, window_id, etc.)
+    captured_at_ms: int | None = None
+```
+
+Methods:
+- `element(element_id: str) -> DesktopElement` — O(1) lookup by ID (lazy dict index). Raises KeyError.
+- `compact() -> dict` — Planner-friendly summary (visible elements only)
+
+### Subtask
+
+See "Subtask contract" section above.
+
+Methods:
+- `compact() -> dict` — Serializable summary for the decision policy
+
+### Decision
+
+One JEV decision. Either an action (`kind` set) or terminal (`terminal` set), never both.
+
+```python
+@dataclass(frozen=True, slots=True)
+class Decision:
+    kind: ActionKind | None = None
+    terminal: TerminalKind | None = None
+    target_id: str | None = None
+    secondary_target_id: str | None = None
+    input_key: str | None = None
+    key: str | None = None
+    hotkey: str | None = None
+    scroll_direction: str | None = None
+    drag_dx: float | None = None
+    drag_dy: float | None = None
+    confidence: float | None = None
+    latency_ms: int | None = None
+    raw: Mapping[str, Any] = {}  # Raw policy response for debugging
+```
+
+### ExecutableAction
+
+Validated, ready-to-execute action with freshness guards attached.
+
+```python
+@dataclass(frozen=True, slots=True)
+class ExecutableAction:
+    kind: ActionKind
+    target_id: str | None = None
+    target_guard: str | None = None
+    secondary_target_id: str | None = None
+    secondary_target_guard: str | None = None
+    value: str | int | float | bool | None = None
+    key: str | None = None
+    hotkey: str | None = None
+    scroll_direction: str | None = None
+    drag_dx: float | None = None
+    drag_dy: float | None = None
+```
+
+### ActionRecord
+
+One step in execution history.
+
+```python
+@dataclass(frozen=True, slots=True)
+class ActionRecord:
+    step: int
+    decision: Decision
+    action: ExecutableAction
+    before_revision: str
+    after_revision: str
+    state_changed: bool
+    elapsed_ms: int
+    target_name: str | None = None
+    target_source: str | None = None
+    target_bounds: Bounds | None = None
+```
+
+Methods:
+- `compact() -> dict` — Serializable summary with step, action, target, timing
+
+### ExecutionResult
+
+```python
+@dataclass(frozen=True, slots=True)
+class ExecutionResult:
+    status: TerminalKind
+    subtask: Subtask
+    final_snapshot: DesktopSnapshot
+    history: tuple[ActionRecord, ...]
+    observations: tuple[str, ...] = ()
+    reason: str | None = None
+
+    @property
+    def actions_taken(self) -> int: ...
+```
+
+### StepEvent
+
+Emitted by `run_iter()` after each decision cycle.
+
+```python
+class StepEvent:
+    step: int
+    snapshot: DesktopSnapshot
+    decision: Decision
+    action: ExecutableAction | None     # None for terminal decisions
+    record: ActionRecord | None         # None for terminal decisions
+    result: ExecutionResult | None      # Set only on the final event
+
+    @property
+    def terminal(self) -> bool: ...     # True when result is set
+```
+
+---
+
+## Runtime
+
+### DesktopExecutor
+
+The core executor. Takes a backend and policy, runs subtasks.
+
+```python
+class DesktopExecutor:
+    def __init__(
+        self,
+        backend: DesktopBackend,
+        policy: DecisionPolicy,
+        *,
+        config: RuntimeConfig | None = None,
+    ) -> None: ...
+
+    def run(self, subtask: Subtask) -> ExecutionResult: ...
+    def run_iter(self, subtask: Subtask) -> Generator[StepEvent, None, ExecutionResult]: ...
+    def cancel(self) -> None: ...
+```
+
+- `run()` — Execute subtask, return result. Delegates to run_iter internally.
+- `run_iter()` — Generator yielding StepEvent after each decision cycle. The final event has `event.terminal == True` and `event.result` set.
+- `cancel()` — Thread-safe. Signals the executor to stop after the current action.
+
+### RuntimeConfig
+
+```python
+@dataclass(slots=True)
+class RuntimeConfig:
+    stale_retries: int = 8           # Max freshness re-observations before giving up
+    no_change_limit: int = 3         # Consecutive no-change actions before BLOCKED
+    post_action_settle_s: float = 0.03
+    timeout_s: float | None = None   # Wall-clock timeout (None = no limit)
+    verify: VerifyFn | None = None   # Verification callback for SUBTASK_COMPLETE
+```
+
+### VerifyFn
+
+```python
+VerifyFn = Callable[[DesktopSnapshot, Subtask], bool]
+```
+
+When set on RuntimeConfig, called before accepting SUBTASK_COMPLETE. If it returns False, the result becomes NEEDS_AGENT with reason "Verification callback rejected SUBTASK_COMPLETE."
+
+### Execution loop behavior
+
+1. Observe desktop
+2. Ask policy for a decision
+3. If terminal: verify (if callback set), yield final event, return
+4. Materialize action (validate target exists, is legal, resolve input_key)
+5. Check freshness (target guard matches current state)
+6. Execute via backend
+7. Wait for UI settling (polling-based structural stability)
+8. Record action, yield step event
+9. Check no-change limit, budget, timeout, cancellation
+10. Loop
+
+Termination conditions:
+- Policy returns terminal decision (SUBTASK_COMPLETE, BLOCKED, NEEDS_AGENT)
+- Verification callback rejects completion -> NEEDS_AGENT
+- Action budget exhausted -> NEEDS_AGENT
+- Wall-clock timeout -> NEEDS_AGENT
+- cancel() called -> NEEDS_AGENT
+- Stale retries exhausted -> NEEDS_AGENT
+- No-change limit hit -> BLOCKED
+- Backend execution error -> NEEDS_AGENT
+
+---
+
+## JSON boundary functions
+
+### subtask_from_dict
+
+```python
+def subtask_from_dict(payload: Mapping[str, Any]) -> Subtask
+```
+
+Parse a dict into a Subtask. Accepted keys: goal, verification, inputs, constraints, max_actions, metadata. Raises ValueError on unknown fields.
+
+### result_to_dict
+
+```python
+def result_to_dict(result: ExecutionResult) -> dict[str, Any]
+```
+
+Returns: `{"status", "actions_taken", "reason", "observations", "history", "final_snapshot"}`
+
+### execute_payload
+
+```python
+def execute_payload(executor: DesktopExecutor, payload: Mapping[str, Any]) -> dict[str, Any]
+```
+
+Convenience: `result_to_dict(executor.run(subtask_from_dict(payload)))`.
+
+---
+
+## Protocols
+
+### DesktopBackend
+
+```python
+class DesktopBackend(Protocol):
+    def observe(self) -> DesktopSnapshot: ...
+    def is_fresh(self, snapshot: DesktopSnapshot, action: ExecutableAction) -> bool: ...
+    def execute(self, snapshot: DesktopSnapshot, action: ExecutableAction) -> None: ...
+```
+
+- `observe()` — Capture current desktop state
+- `is_fresh()` — Check if snapshot + action target still matches reality
+- `execute()` — Perform the action. Raise StaleDesktopState if target changed. Raise InvalidDecision if action is illegal. Other exceptions are caught by the runtime.
+
+### DecisionPolicy
+
+```python
+class DecisionPolicy(Protocol):
+    def decide(
+        self,
+        *,
+        subtask: Subtask,
+        snapshot: DesktopSnapshot,
+        history: Sequence[ActionRecord],
+    ) -> Decision: ...
+```
+
+---
+
+## Backends
+
+### MacOSHybridBackend
+
+```python
+from arc_cua.backends import MacOSHybridBackend
+backend = MacOSHybridBackend()
+```
+
+Combines MacOSAXBackend (semantic controls) and MacOSOCRProvider (Apple Vision OCR). Handles modal detection, OCR deduplication, and coordinate-based execution for OCR targets.
+
+### MacOSAXBackend
+
+```python
+from arc_cua.backends import MacOSAXBackend
+backend = MacOSAXBackend(max_elements=1200, max_depth=18)
+```
+
+Pure Accessibility backend. Traverses the AX tree of the frontmost application. Supports CLICK, DOUBLE_CLICK, RIGHT_CLICK, TYPE_TEXT, SET_VALUE, PRESS_KEY, HOTKEY, SCROLL.
+
+Methods:
+- `register_ref(element_id, ref)` — Register an AX reference for an element (used by hybrid backend)
+
+### StateMachineBackend
+
+```python
+from arc_cua.backends import StateMachineBackend
+
+SnapshotFactory = Callable[[dict[str, Any]], DesktopSnapshot]
+Transition = Callable[[dict[str, Any], ExecutableAction], None]
+
+backend = StateMachineBackend(
+    initial_state={"key": "value"},
+    snapshot_factory=my_snapshot_fn,
+    transition=my_transition_fn,
+)
+```
+
+Deterministic backend for tests and demos. You define:
+- `snapshot_factory(state) -> DesktopSnapshot` — How state maps to UI
+- `transition(state, action) -> None` — How actions mutate state
+
+---
+
+## Policies
+
+### TypeSafeJevPolicy
+
+```python
+from arc_cua.policies import TypeSafeJevPolicy
+
+policy = TypeSafeJevPolicy(
+    api_key="...",          # or TYPESAFE_API_KEY env var
+    model="jev-latest",     # or TYPESAFE_MODEL env var
+    base_url="...",         # or TYPESAFE_BASE_URL env var
+    timeout_s=12.0,
+    client=httpx.Client(),  # optional, reuse connection
+)
+```
+
+Builds a dynamic action space from the current DesktopSnapshot and sends it to the JEV API. One request resolves operation + all operation-specific targets in parallel (speculative fan-out).
+
+### ScriptedPolicy
+
+```python
+from arc_cua.policies import ScriptedPolicy
+
+policy = ScriptedPolicy([
+    Decision(kind=ActionKind.CLICK, target_id="btn"),
+    Decision(terminal=TerminalKind.SUBTASK_COMPLETE),
+])
+```
+
+Deterministic policy for tests. Consumes decisions in order. Raises RuntimeError when exhausted.
+
+---
+
+## Error types
+
+All inherit from `JevDesktopError(RuntimeError)`:
+
+| Error | Meaning |
+|---|---|
+| StaleDesktopState | Target changed between observation and execution |
+| InvalidDecision | Policy returned an illegal action for the current snapshot |
+| UnsupportedDesktopAction | Backend does not support the requested action kind |
+
+StaleDesktopState is caught by the runtime and triggers re-observation. InvalidDecision propagates to the caller. Other backend exceptions are caught and return NEEDS_AGENT.
+
+---
+
+## Constants
+
+```python
+DEFAULT_PRESS_KEYS = ("ENTER", "ESCAPE", "TAB", "SPACE", "BACKSPACE", "DELETE",
+                      "ARROW_UP", "ARROW_DOWN", "ARROW_LEFT", "ARROW_RIGHT")
+
+DEFAULT_HOTKEYS = ("MOD+A", "MOD+C", "MOD+V", "MOD+Z", "MOD+SHIFT+Z", "MOD+F")
+
+SCROLL_DIRECTIONS = ("UP", "DOWN", "LEFT", "RIGHT")
+```
+
+MOD means Cmd on macOS, Ctrl elsewhere.
+
+---
+
+## Extending arc-cua
+
+### Custom backend
+
+Implement the DesktopBackend protocol:
+
+```python
+class MyBackend:
+    def observe(self) -> DesktopSnapshot:
+        # Return current desktop state as DesktopElements
+        ...
+
+    def is_fresh(self, snapshot: DesktopSnapshot, action: ExecutableAction) -> bool:
+        # Check target_guard still matches
+        if action.target_id:
+            element = self.current_element(action.target_id)
+            return element.semantic_guard() == action.target_guard
+        return True
+
+    def execute(self, snapshot: DesktopSnapshot, action: ExecutableAction) -> None:
+        # Perform the UI action
+        # Raise StaleDesktopState if target changed
+        # Raise InvalidDecision if action is illegal
+        ...
+```
+
+### Custom policy
+
+Implement the DecisionPolicy protocol:
+
+```python
+class MyPolicy:
+    def decide(
+        self,
+        *,
+        subtask: Subtask,
+        snapshot: DesktopSnapshot,
+        history: Sequence[ActionRecord],
+    ) -> Decision:
+        # Return either:
+        #   Decision(kind=ActionKind.CLICK, target_id="element_id")
+        #   Decision(terminal=TerminalKind.SUBTASK_COMPLETE)
+        ...
+```
+
+### Logging
+
+arc-cua uses stdlib logging. Enable debug output:
+
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+```
+
+Loggers: `arc_cua.runtime`, `arc_cua.backends.macos_ax`, `arc_cua.backends.macos_hybrid`, `arc_cua.backends.macos_ocr`, `arc_cua.policies.typesafe`.
+
+---
+
+## Dependencies
+
+Runtime:
+- httpx[http2] >= 0.28, < 1
+
+macOS extras (pip install -e '.[macos]'):
+- pyobjc-framework-ApplicationServices >= 11
+- pyobjc-framework-Cocoa >= 11
+- pyobjc-framework-Quartz >= 11
+- pyobjc-framework-Vision >= 11
+
+Dev:
+- pytest >= 8.4, < 9
+- ruff >= 0.14, < 1
+
+Python >= 3.12 required.
