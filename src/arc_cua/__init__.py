@@ -7,10 +7,11 @@ from .models import (
     DesktopSnapshot,
     ExecutableAction,
     ExecutionResult,
+    StepEvent,
     Subtask,
     TerminalKind,
 )
-from .runtime import DesktopExecutor, RuntimeConfig
+from .runtime import DesktopExecutor, RuntimeConfig, VerifyFn
 
 __all__ = [
     "ActionKind",
@@ -22,8 +23,10 @@ __all__ = [
     "ExecutableAction",
     "ExecutionResult",
     "RuntimeConfig",
+    "StepEvent",
     "Subtask",
     "TerminalKind",
+    "VerifyFn",
     "execute_payload",
     "result_to_dict",
     "subtask_from_dict",

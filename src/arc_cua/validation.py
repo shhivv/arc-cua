@@ -3,7 +3,6 @@ from __future__ import annotations
 from .errors import InvalidDecision
 from .models import ActionKind, Decision, DesktopSnapshot, ExecutableAction, Subtask
 
-
 _TARGETED = {
     ActionKind.CLICK,
     ActionKind.DOUBLE_CLICK,

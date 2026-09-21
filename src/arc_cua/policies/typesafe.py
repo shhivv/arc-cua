@@ -21,7 +21,6 @@ from ..models import (
     summarize_history,
 )
 
-
 POLICY_RULES = """Execute the supplied desktop subtask using exactly one next operation.
 
 The external agent supplied:

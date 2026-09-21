@@ -523,9 +523,9 @@ def _frameworks() -> tuple[
 
     try:
         import AppKit  # type: ignore
+        import objc  # type: ignore
         import Quartz  # type: ignore
         import Vision  # type: ignore
-        import objc  # type: ignore
 
     except ImportError as exc:
 
@@ -775,9 +775,10 @@ def _ocr_id(
 
     payload = (
         window_id,
-        round(center_x / 48),
-        round(center_y / 24),
-        round(bounds.height / 16),
+        round(center_x / 12),
+        round(center_y / 8),
+        round(bounds.width / 8),
+        round(bounds.height / 8),
     )
 
     return (
@@ -797,9 +798,10 @@ def _ocr_guard(
 
     payload = (
         window_id,
-        round(center_x / 48),
-        round(center_y / 24),
-        round(bounds.height / 16),
+        round(center_x / 12),
+        round(center_y / 8),
+        round(bounds.width / 8),
+        round(bounds.height / 8),
     )
 
     return hashlib.sha256(

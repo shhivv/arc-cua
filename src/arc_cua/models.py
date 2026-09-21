@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from enum import StrEnum
 from hashlib import sha256
-import json
 from typing import Any, Mapping, Sequence
 
 
@@ -300,6 +300,33 @@ DEFAULT_HOTKEYS: tuple[str, ...] = (
 )
 
 SCROLL_DIRECTIONS: tuple[str, ...] = ("UP", "DOWN", "LEFT", "RIGHT")
+
+
+class StepEvent:
+    """Emitted by run_iter() after each decision cycle."""
+
+    __slots__ = ("step", "snapshot", "decision", "action", "record", "result")
+
+    def __init__(
+        self,
+        *,
+        step: int,
+        snapshot: DesktopSnapshot,
+        decision: Decision,
+        action: ExecutableAction | None = None,
+        record: ActionRecord | None = None,
+        result: ExecutionResult | None = None,
+    ) -> None:
+        self.step = step
+        self.snapshot = snapshot
+        self.decision = decision
+        self.action = action
+        self.record = record
+        self.result = result
+
+    @property
+    def terminal(self) -> bool:
+        return self.result is not None
 
 
 def summarize_history(history: Sequence[ActionRecord], limit: int = 8) -> list[dict[str, Any]]:

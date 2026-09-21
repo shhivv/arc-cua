@@ -7,7 +7,6 @@ from typing import Any
 from ..errors import StaleDesktopState
 from ..models import DesktopSnapshot, ExecutableAction
 
-
 SnapshotFactory = Callable[[dict[str, Any]], DesktopSnapshot]
 Transition = Callable[[dict[str, Any], ExecutableAction], None]
 

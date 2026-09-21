@@ -16,7 +16,6 @@ from ..models import (
     DesktopSnapshot,
     ExecutableAction,
 )
-
 from .macos_ax import MacOSAXBackend
 from .macos_ocr import MacOSOCRProvider
 
@@ -1274,29 +1273,3 @@ def _bounds_payload(
         ),
     }
 
-def _revision_element(
-    element: DesktopElement,
-) -> dict[str, Any]:
-    """
-    Build state used for change detection.
-
-    OCR coordinates jitter slightly on every Vision pass,
-    so geometry must NOT be part of semantic state.
-
-    A text label moving by 0.4px does not mean the desktop
-    actually changed.
-    """
-
-    if element.source == "macos_ocr":
-        return {
-            "id": element.id,
-            "role": element.role,
-            "name": element.name,
-            "source": element.source,
-        }
-
-    return {
-        "id": element.id,
-        "guard": element.semantic_guard(),
-        "source": element.source,
-    }

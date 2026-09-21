@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 import hashlib
 import json
 import re
 import sys
 import time
+from datetime import datetime
 from typing import Any
 
 from ..errors import StaleDesktopState, UnsupportedDesktopAction
-from ..models import ActionKind, DesktopElement, DesktopSnapshot, ExecutableAction
-
+from ..models import ActionKind, Bounds, DesktopElement, DesktopSnapshot, ExecutableAction
 
 _TEXT_ROLES = {"AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"}
 _VALUE_ROLES = _TEXT_ROLES | {"AXSlider", "AXIncrementor"}
@@ -138,6 +136,17 @@ class MacOSAXBackend:
                 raise UnsupportedDesktopAction(f"AX action {action_name} failed with error {error}")
             return
 
+        if action.kind in {ActionKind.DOUBLE_CLICK, ActionKind.RIGHT_CLICK}:
+            bounds = _ax_bounds(AS, ref)
+            if bounds is None:
+                raise UnsupportedDesktopAction(f"{action.kind.value} requires resolvable screen position")
+            _click_at(
+                bounds,
+                count=2 if action.kind == ActionKind.DOUBLE_CLICK else 1,
+                button="right" if action.kind == ActionKind.RIGHT_CLICK else "left",
+            )
+            return
+
         if action.kind in {ActionKind.TYPE_TEXT, ActionKind.SET_VALUE}:
             error, settable = AS.AXUIElementIsAttributeSettable(
                 ref,
@@ -253,7 +262,10 @@ class MacOSAXBackend:
 
         # Ignore anonymous containers with no useful action/state. Their children are
         # still traversed; this keeps the model-visible snapshot much smaller.
-        semantic = bool(name or value not in (None, "") or capabilities or role in {"AXWindow", "AXGroup", "AXToolbar", "AXMenu"})
+        structural_roles = {"AXWindow", "AXGroup", "AXToolbar", "AXMenu"}
+        semantic = bool(
+            name or value not in (None, "") or capabilities or role in structural_roles
+        )
         if not semantic:
             return None
 
@@ -304,8 +316,8 @@ class MacOSAXBackend:
 
 def _frameworks() -> tuple[Any, Any]:
     try:
-        import ApplicationServices as AS  # type: ignore
         import AppKit  # type: ignore
+        import ApplicationServices as AS  # type: ignore
     except ImportError as exc:
         raise RuntimeError(
             "Install the macOS extra: pip install 'arc-cua[macos]'"
@@ -600,3 +612,47 @@ def _scroll(direction: str) -> None:
         raise UnsupportedDesktopAction(f"Unknown scroll direction: {direction}")
     event = Q.CGEventCreateScrollWheelEvent(None, Q.kCGScrollEventUnitPixel, 2, vertical, horizontal)
     Q.CGEventPost(Q.kCGHIDEventTap, event)
+
+
+def _ax_bounds(AS: Any, ref: Any) -> Bounds | None:
+    pos = _attr(AS, ref, "AXPosition")
+    size = _attr(AS, ref, "AXSize")
+    if pos is None or size is None:
+        return None
+    try:
+        x = float(pos.x)
+        y = float(pos.y)
+        w = float(size.width)
+        h = float(size.height)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if w <= 0 or h <= 0:
+        return None
+    return Bounds(x=x, y=y, width=w, height=h)
+
+
+def _click_at(bounds: Bounds, *, count: int, button: str) -> None:
+    Q = _quartz()
+    point = bounds.center
+    if button == "right":
+        mouse_button = Q.kCGMouseButtonRight
+        down_type = Q.kCGEventRightMouseDown
+        up_type = Q.kCGEventRightMouseUp
+    else:
+        mouse_button = Q.kCGMouseButtonLeft
+        down_type = Q.kCGEventLeftMouseDown
+        up_type = Q.kCGEventLeftMouseUp
+
+    move = Q.CGEventCreateMouseEvent(None, Q.kCGEventMouseMoved, point, mouse_button)
+    Q.CGEventPost(Q.kCGHIDEventTap, move)
+
+    for i in range(count):
+        click_state = i + 1 if count > 1 else 1
+        down = Q.CGEventCreateMouseEvent(None, down_type, point, mouse_button)
+        up = Q.CGEventCreateMouseEvent(None, up_type, point, mouse_button)
+        Q.CGEventSetIntegerValueField(down, Q.kCGMouseEventClickState, click_state)
+        Q.CGEventSetIntegerValueField(up, Q.kCGMouseEventClickState, click_state)
+        Q.CGEventPost(Q.kCGHIDEventTap, down)
+        Q.CGEventPost(Q.kCGHIDEventTap, up)
+        if i + 1 < count:
+            time.sleep(0.06)
