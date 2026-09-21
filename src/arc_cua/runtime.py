@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Callable, Generator
@@ -20,6 +21,8 @@ from .models import (
 )
 from .protocols import DecisionPolicy, DesktopBackend
 from .validation import materialize_action
+
+logger = logging.getLogger(__name__)
 
 VerifyFn = Callable[[DesktopSnapshot, Subtask], bool]
 
@@ -154,6 +157,7 @@ class DesktopExecutor:
         snapshot = self.backend.observe()
         stale_retries = 0
         step = 0
+        logger.debug("run_iter start goal=%r max_actions=%d", subtask.goal, subtask.max_actions)
 
         while len(history) < subtask.max_actions:
             if self._cancel.is_set():
@@ -207,13 +211,12 @@ class DesktopExecutor:
                         history=tuple(history),
                         observations=_terminal_observations(decision.terminal, subtask),
                     )
+                logger.debug("terminal step=%d status=%s", step, result.status.value)
                 yield StepEvent(step=step, snapshot=snapshot, decision=decision, result=result)
                 return result
 
-            try:
-                action = materialize_action(decision, snapshot, subtask)
-            except InvalidDecision:
-                raise
+            action = materialize_action(decision, snapshot, subtask)
+            logger.debug("step=%d action=%s target=%s", step, action.kind.value, action.target_id)
 
             if not self.backend.is_fresh(snapshot, action):
                 stale_retries += 1
@@ -247,6 +250,7 @@ class DesktopExecutor:
             except InvalidDecision:
                 raise
             except Exception as exc:
+                logger.warning("backend execute failed step=%d: %s", step, exc)
                 result = ExecutionResult(
                     status=TerminalKind.NEEDS_AGENT,
                     subtask=subtask,

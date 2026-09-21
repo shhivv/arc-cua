@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
+from collections import deque
 from typing import Any
 
 from ..errors import (
@@ -18,6 +20,8 @@ from ..models import (
 )
 from .macos_ax import MacOSAXBackend
 from .macos_ocr import MacOSOCRProvider
+
+logger = logging.getLogger(__name__)
 
 
 class MacOSHybridBackend:
@@ -197,6 +201,11 @@ class MacOSHybridBackend:
                     modal_elements
                 ),
             }
+        )
+
+        logger.debug(
+            "hybrid observe ax=%d ocr=%d modal=%s",
+            len(ax_elements), len(ocr_elements), modal_active,
         )
 
         return DesktopSnapshot(
@@ -777,9 +786,7 @@ def _find_modal_roots(
         )
 
     roots: list[Any] = []
-    queue = list(
-        seeds
-    )
+    queue = deque(seeds)
     visited: set[str] = set()
 
     max_nodes = 400
@@ -790,9 +797,7 @@ def _find_modal_roots(
         queue
         and seen < max_nodes
     ):
-        element, depth = queue.pop(
-            0
-        )
+        element, depth = queue.popleft()
         seen += 1
 
         key = repr(
@@ -893,14 +898,14 @@ def _collect_modal_ax_elements(
         Bounds
     ] = []
 
-    queue: list[
+    queue: deque[
         tuple[
             Any,
             str | None,
             int,
             bool,
         ]
-    ] = [
+    ] = deque(
         (
             root,
             None,
@@ -908,7 +913,7 @@ def _collect_modal_ax_elements(
             True,
         )
         for root in roots
-    ]
+    )
 
     visited: set[str] = set()
 
@@ -924,7 +929,7 @@ def _collect_modal_ax_elements(
             parent_id,
             depth,
             is_root,
-        ) = queue.pop(0)
+        ) = queue.popleft()
 
         ref_key = repr(
             ref
@@ -942,9 +947,9 @@ def _collect_modal_ax_elements(
         )
 
         try:
-            ax_backend._refs[
-                element_id
-            ] = ref
+            ax_backend.register_ref(
+                element_id, ref
+            )
         except Exception:
             pass
 

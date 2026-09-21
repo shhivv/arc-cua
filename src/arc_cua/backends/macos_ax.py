@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import sys
 import time
@@ -10,6 +11,8 @@ from typing import Any
 
 from ..errors import StaleDesktopState, UnsupportedDesktopAction
 from ..models import ActionKind, Bounds, DesktopElement, DesktopSnapshot, ExecutableAction
+
+logger = logging.getLogger(__name__)
 
 _TEXT_ROLES = {"AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"}
 _VALUE_ROLES = _TEXT_ROLES | {"AXSlider", "AXIncrementor"}
@@ -33,6 +36,9 @@ class MacOSAXBackend:
         self._pid: int | None = None
         self._require_accessibility()
 
+    def register_ref(self, element_id: str, ref: Any) -> None:
+        self._refs[element_id] = ref
+
     def observe(self) -> DesktopSnapshot:
         AS, AppKit = _frameworks()
         app = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
@@ -51,6 +57,7 @@ class MacOSAXBackend:
         self._walk(AS, root, elements, refs, visited, parent_id=None, depth=0)
         self._refs = refs
         self._pid = pid
+        logger.debug("ax observe app=%r elements=%d", app_name, len(elements))
 
         revision_payload = [
             {

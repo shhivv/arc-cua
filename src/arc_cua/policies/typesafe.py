@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 import os
 import time
@@ -20,6 +21,8 @@ from ..models import (
     TerminalKind,
     summarize_history,
 )
+
+logger = logging.getLogger(__name__)
 
 POLICY_RULES = """Execute the supplied desktop subtask using exactly one next operation.
 
@@ -324,11 +327,14 @@ class TypeSafeJevPolicy:
                     headers={"Authorization": f"Bearer {self.api_key}"},
                 )
             except httpx.HTTPError as exc:
+                logger.warning("JEV request failed attempt=%d: %s", attempt, exc)
                 raise RuntimeError("JEV connection failed; no action executed") from exc
             if response.status_code in {429, 503, 529} and attempt < 2:
+                logger.debug("JEV rate-limited status=%d attempt=%d", response.status_code, attempt)
                 time.sleep(0.5 * (2**attempt))
                 continue
             if response.is_error:
+                logger.warning("JEV error status=%d", response.status_code)
                 raise RuntimeError(f"JEV provider returned HTTP {response.status_code}; no action executed")
             return response.json()
         raise RuntimeError("JEV provider unavailable")

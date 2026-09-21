@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import sys
 import time
@@ -8,6 +9,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..models import ActionKind, Bounds, DesktopElement
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -765,15 +768,12 @@ def _ocr_actions(
     return tuple(actions)
 
 
-def _ocr_id(
-    text: str,
+def _ocr_spatial_key(
     bounds: Bounds,
     window_id: int,
-) -> str:
-    """Keep a visual region stable even when Vision changes its OCR spelling."""
+) -> tuple[int, int, int, int, int]:
     center_x, center_y = bounds.center
-
-    payload = (
+    return (
         window_id,
         round(center_x / 12),
         round(center_y / 8),
@@ -781,12 +781,21 @@ def _ocr_id(
         round(bounds.height / 8),
     )
 
+
+def _ocr_id(
+    text: str,
+    bounds: Bounds,
+    window_id: int,
+) -> str:
+    """Keep a visual region stable even when Vision changes its OCR spelling."""
+    key = _ocr_spatial_key(bounds, window_id)
     return (
         "ocr_"
         + hashlib.sha1(
-            repr(payload).encode()
+            repr(key).encode()
         ).hexdigest()[:14]
     )
+
 
 def _ocr_guard(
     text: str,
@@ -794,17 +803,8 @@ def _ocr_guard(
     window_id: int,
 ) -> str:
     """Guard visual identity using coarse geometry, not OCR spelling."""
-    center_x, center_y = bounds.center
-
-    payload = (
-        window_id,
-        round(center_x / 12),
-        round(center_y / 8),
-        round(bounds.width / 8),
-        round(bounds.height / 8),
-    )
-
+    key = _ocr_spatial_key(bounds, window_id)
     return hashlib.sha256(
-        repr(payload).encode()
+        repr(key).encode()
     ).hexdigest()[:20]
 

@@ -111,12 +111,16 @@ class DesktopSnapshot:
     elements: tuple[DesktopElement, ...]
     context: Mapping[str, Any] = field(default_factory=dict)
     captured_at_ms: int | None = None
+    _index: dict[str, DesktopElement] | None = field(
+        default=None, init=False, repr=False, compare=False,
+    )
 
     def element(self, element_id: str) -> DesktopElement:
-        for element in self.elements:
-            if element.id == element_id:
-                return element
-        raise KeyError(element_id)
+        idx = self._index
+        if idx is None:
+            idx = {e.id: e for e in self.elements}
+            object.__setattr__(self, "_index", idx)
+        return idx[element_id]
 
     def compact(self) -> dict[str, Any]:
         return {
