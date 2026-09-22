@@ -7,3 +7,4 @@ build/
 *.egg-info/
 .env
 examples/demo_agent.py
+.DS_Store
