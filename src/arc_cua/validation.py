@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .errors import InvalidDecision
-from .models import ActionKind, Decision, DesktopSnapshot, ExecutableAction, Subtask
+from .models import DEFAULT_HOTKEYS, ActionKind, Decision, DesktopSnapshot, ExecutableAction, Subtask
 
 _TARGETED = {
     ActionKind.CLICK,
@@ -62,8 +62,11 @@ def materialize_action(
 
     if kind == ActionKind.PRESS_KEY and not decision.key:
         raise InvalidDecision("PRESS_KEY requires key")
-    if kind == ActionKind.HOTKEY and not decision.hotkey:
-        raise InvalidDecision("HOTKEY requires hotkey")
+    if kind == ActionKind.HOTKEY:
+        if not decision.hotkey:
+            raise InvalidDecision("HOTKEY requires hotkey")
+        if decision.hotkey not in DEFAULT_HOTKEYS and decision.hotkey not in subtask.shortcuts:
+            raise InvalidDecision(f"Hotkey {decision.hotkey!r} is not available for this subtask")
     if kind == ActionKind.SCROLL and not decision.scroll_direction:
         raise InvalidDecision("SCROLL requires scroll_direction")
     if kind == ActionKind.DRAG_BY and (decision.drag_dx is None or decision.drag_dy is None):

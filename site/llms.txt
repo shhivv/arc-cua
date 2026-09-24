@@ -7,6 +7,7 @@ arc-cua lets a planner or CUA agent hand off bounded desktop subtasks to a fast 
 ## Key concepts
 
 - Subtask contract: The upstream agent defines goal, literal inputs, constraints, and verification criteria. The executor never invents text or verification.
+- Caller-supplied shortcuts: Subtask.shortcuts maps keyboard chords to descriptions (for example, MOD+S to Save). JEV chooses from defaults plus these task-local choices. Defaults remain unchanged; undeclared non-default hotkeys are rejected.
 - JEV (Judge-Evaluate-Verify): Fast decision backend by TypeSafe. Given structured desktop state, it selects the next UI operation from a dynamically built action space.
 - Hybrid perception: macOS Accessibility (AX) for semantic controls + Apple Vision OCR for visible text. Both normalize into DesktopElements.
 - Freshness guards: SHA-256 fingerprints on element state prevent stale execution. A mutation is never applied against an outdated target.

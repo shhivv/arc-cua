@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from ..errors import StaleDesktopState, UnsupportedDesktopAction
+from ..keyboard import parse_hotkey
 from ..models import ActionKind, Bounds, DesktopElement, DesktopSnapshot, ExecutableAction
 
 logger = logging.getLogger(__name__)
@@ -546,6 +547,8 @@ def _quartz() -> Any:
     return Quartz
 
 
+# Physical key positions from Apple's HIToolbox Events.h (kVK_ANSI_* and kVK_*).
+# Supporting a key here does not add it to the policy's default action space.
 _KEYCODES = {
     "ENTER": 36,
     "ESCAPE": 53,
@@ -557,11 +560,77 @@ _KEYCODES = {
     "ARROW_RIGHT": 124,
     "ARROW_DOWN": 125,
     "ARROW_UP": 126,
+    "HOME": 115,
+    "END": 119,
+    "PAGE_UP": 116,
+    "PAGE_DOWN": 121,
     "A": 0,
+    "B": 11,
     "C": 8,
+    "D": 2,
+    "E": 14,
     "F": 3,
+    "G": 5,
+    "H": 4,
+    "I": 34,
+    "J": 38,
+    "K": 40,
+    "L": 37,
+    "M": 46,
+    "N": 45,
+    "O": 31,
+    "P": 35,
+    "Q": 12,
+    "R": 15,
+    "S": 1,
+    "T": 17,
+    "U": 32,
     "V": 9,
+    "W": 13,
+    "X": 7,
+    "Y": 16,
     "Z": 6,
+    "0": 29,
+    "1": 18,
+    "2": 19,
+    "3": 20,
+    "4": 21,
+    "5": 23,
+    "6": 22,
+    "7": 26,
+    "8": 28,
+    "9": 25,
+    "MINUS": 27,
+    "EQUAL": 24,
+    "LEFT_BRACKET": 33,
+    "RIGHT_BRACKET": 30,
+    "BACKSLASH": 42,
+    "SEMICOLON": 41,
+    "QUOTE": 39,
+    "COMMA": 43,
+    "PERIOD": 47,
+    "SLASH": 44,
+    "GRAVE": 50,
+    "F1": 122,
+    "F2": 120,
+    "F3": 99,
+    "F4": 118,
+    "F5": 96,
+    "F6": 97,
+    "F7": 98,
+    "F8": 100,
+    "F9": 101,
+    "F10": 109,
+    "F11": 103,
+    "F12": 111,
+    "F13": 105,
+    "F14": 107,
+    "F15": 113,
+    "F16": 106,
+    "F17": 64,
+    "F18": 79,
+    "F19": 80,
+    "F20": 90,
 }
 
 
@@ -582,14 +651,16 @@ def _press_key(key: str) -> None:
 
 
 def _press_hotkey(hotkey: str) -> None:
+    try:
+        modifiers, key = parse_hotkey(hotkey)
+    except ValueError as exc:
+        raise UnsupportedDesktopAction(str(exc)) from exc
     Q = _quartz()
-    parts = hotkey.split("+")
-    key = parts[-1]
     code = _KEYCODES.get(key)
     if code is None:
         raise UnsupportedDesktopAction(f"Unsupported macOS hotkey key: {key}")
     flags = 0
-    for modifier in parts[:-1]:
+    for modifier in modifiers:
         if modifier == "MOD":
             flags |= Q.kCGEventFlagMaskCommand
         elif modifier == "SHIFT":

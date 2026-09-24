@@ -140,11 +140,27 @@ The upstream agent creates a Subtask that defines:
 | constraints | tuple[str, ...] | Things the executor must not do |
 | max_actions | int | Action budget (default 30) |
 | metadata | Mapping[str, Any] | Opaque pass-through for the caller |
+| shortcuts | Mapping[str, str] | Extra keyboard chords and descriptions for this subtask (default empty) |
 
 Validation:
 - goal cannot be empty
 - verification must have at least one criterion
 - max_actions must be >= 1
+- shortcuts must map valid uppercase chords to non-empty descriptions
+
+Example: `shortcuts={"MOD+S": "Save the current document"}`. These are added to the existing HOTKEY choices for this subtask only. Matching defaults can be given a contextual description. JEV receives chord IDs and descriptions and chooses one offered chord. Runtime validation rejects undeclared non-default hotkeys, including those emitted by custom policies.
+
+The JSON payload accepts the same map:
+
+```json
+{
+  "goal": "Save the current document",
+  "verification": ["The document has no unsaved changes"],
+  "shortcuts": {"MOD+S": "Save the current document in this editor"}
+}
+```
+
+Each chord has one or more MOD, CTRL, ALT, SHIFT modifiers and one key. MOD is Cmd on macOS. Keys include A-Z, 0-9, F1-F20, ENTER, ESCAPE, TAB, SPACE, BACKSPACE, DELETE, ARROW_UP/DOWN/LEFT/RIGHT, HOME, END, PAGE_UP, PAGE_DOWN, MINUS, EQUAL, LEFT_BRACKET, RIGHT_BRACKET, BACKSLASH, SEMICOLON, QUOTE, COMMA, PERIOD, SLASH, GRAVE. No macros or action sequences. The macOS backend uses US/ANSI physical key positions. Defaults remain unchanged.
 
 ---
 
@@ -433,7 +449,7 @@ Termination conditions:
 def subtask_from_dict(payload: Mapping[str, Any]) -> Subtask
 ```
 
-Parse a dict into a Subtask. Accepted keys: goal, verification, inputs, constraints, max_actions, metadata. Raises ValueError on unknown fields.
+Parse a dict into a Subtask. Accepted keys: goal, verification, inputs, constraints, max_actions, metadata, shortcuts. Raises ValueError on unknown fields or invalid shortcut declarations.
 
 ### result_to_dict
 

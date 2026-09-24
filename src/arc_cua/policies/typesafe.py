@@ -303,10 +303,18 @@ class TypeSafeJevPolicy:
         }
 
         candidate_maps["HOTKEY_value"] = {key: key for key in DEFAULT_HOTKEYS}
+        candidate_maps["HOTKEY_value"].update(subtask.shortcuts)
         questions["hotkey_value"] = {
             "type": "choice",
             "criteria": candidate_maps["HOTKEY_value"],
-            "instructions": {"subtask": subtask.compact(), "rules": "Choose the hotkey if HOTKEY is selected. MOD means Cmd on macOS and Ctrl elsewhere."},
+            "instructions": {
+                "subtask": subtask.compact(),
+                "rules": (
+                    "Choose an offered hotkey if HOTKEY is selected. Use caller-supplied descriptions "
+                    "to judge when a shortcut applies in the current app and UI state. "
+                    "MOD means Cmd on macOS and Ctrl elsewhere. Never invent a chord."
+                ),
+            },
         }
 
         candidate_maps["SCROLL_direction"] = {direction: direction for direction in SCROLL_DIRECTIONS}

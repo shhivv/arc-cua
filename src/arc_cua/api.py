@@ -8,7 +8,7 @@ from .runtime import DesktopExecutor
 
 def subtask_from_dict(payload: Mapping[str, Any]) -> Subtask:
     """Parse the stable agent-facing JSON/Python contract."""
-    allowed = {"goal", "verification", "inputs", "constraints", "max_actions", "metadata"}
+    allowed = {"goal", "verification", "inputs", "constraints", "max_actions", "metadata", "shortcuts"}
     unknown = set(payload) - allowed
     if unknown:
         raise ValueError(f"Unknown subtask fields: {sorted(unknown)}")
@@ -19,6 +19,7 @@ def subtask_from_dict(payload: Mapping[str, Any]) -> Subtask:
         constraints=tuple(str(v) for v in payload.get("constraints", ())),
         max_actions=int(payload.get("max_actions", 30)),
         metadata=dict(payload.get("metadata", {})),
+        shortcuts=payload.get("shortcuts", {}),
     )
 
 

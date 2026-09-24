@@ -96,6 +96,34 @@ JEV is accessed through [TypeSafe](https://typesafe.com). One JEV call can resol
 
 The upstream agent decides what needs to happen, what literal text may be used, what must not happen, and what counts as success. JEV chooses which element to target and which operation to perform — but never invents arbitrary text. Literal values always originate from the agent via `inputs`.
 
+### Caller-supplied shortcuts
+
+Supply extra keyboard shortcuts for an individual subtask, with descriptions that tell JEV what they do:
+
+```python
+from arc_cua import Subtask
+
+task = Subtask(
+    goal="Save the current document",
+    verification=("The document has no unsaved changes",),
+    shortcuts={"MOD+S": "Save the current document in this editor"},
+)
+```
+
+The same `shortcuts` map is accepted by `execute_payload`. JEV receives these choices alongside the existing default hotkeys and chooses a chord when it selects `HOTKEY`. A supplied description can also clarify a default shortcut's meaning in the current app. The defaults are unchanged, and supplied shortcuts apply only to that subtask.
+
+```python
+result = execute_payload(executor, {
+    "goal": "Save the current document",
+    "verification": ["The document has no unsaved changes"],
+    "shortcuts": {"MOD+S": "Save the current document in this editor"},
+})
+```
+
+Chords use uppercase key names and one or more `MOD`, `CTRL`, `ALT`, or `SHIFT` modifiers, for example `MOD+S`, `CTRL+ALT+7`, or `SHIFT+F12`. `MOD` means Command on macOS. Supported keys include A-Z, 0-9, F1-F20, navigation keys, and named punctuation keys; see [the keyboard vocabulary](src/arc_cua/keyboard.py). The macOS backend uses US/ANSI physical key positions. Each shortcut is one chord, not a sequence of actions.
+
+Malformed declarations fail when the subtask is created. JEV can choose only offered chords; runtime validation also rejects hotkeys outside the defaults and the current subtask's declarations, including decisions from custom policies.
+
 ### Hybrid macOS perception
 
 `arc-cua` combines two local perception sources:

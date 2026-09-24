@@ -4,7 +4,10 @@ import json
 from dataclasses import dataclass, field
 from enum import StrEnum
 from hashlib import sha256
+from types import MappingProxyType
 from typing import Any, Mapping, Sequence
+
+from .keyboard import parse_hotkey
 
 
 class ActionKind(StrEnum):
@@ -146,6 +149,7 @@ class Subtask:
     constraints: tuple[str, ...] = ()
     max_actions: int = 30
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    shortcuts: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.goal.strip():
@@ -154,6 +158,14 @@ class Subtask:
             raise ValueError("Subtask.verification must contain agent-defined criteria")
         if self.max_actions < 1:
             raise ValueError("Subtask.max_actions must be >= 1")
+        if not isinstance(self.shortcuts, Mapping):
+            raise ValueError("Subtask.shortcuts must map keyboard chords to descriptions")
+        shortcuts = dict(self.shortcuts)
+        for chord, description in shortcuts.items():
+            parse_hotkey(chord)
+            if not isinstance(description, str) or not description.strip():
+                raise ValueError("Each shortcut must have a non-empty string description")
+        object.__setattr__(self, "shortcuts", MappingProxyType(shortcuts))
 
     def compact(self) -> dict[str, Any]:
         return {
@@ -162,6 +174,7 @@ class Subtask:
             "inputs": dict(self.inputs),
             "constraints": list(self.constraints),
             "metadata": dict(self.metadata),
+            "shortcuts": dict(self.shortcuts),
         }
 
 

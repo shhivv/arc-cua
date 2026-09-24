@@ -137,6 +137,14 @@ type_text_input:
 
 One JEV request can ask for the operation and speculative operation-specific choices in parallel. Only the head corresponding to the selected operation is consumed.
 
+### Subtask shortcuts
+
+`Subtask.shortcuts` is a mapping from a keyboard chord to its description, such as `{"MOD+S": "Save the current document"}`. The Python and JSON APIs accept the same mapping. It is validated and copied into an immutable mapping when the subtask is created; `compact()` returns a JSON-compatible copy.
+
+For each decision, the policy builds `hotkey_value` from `DEFAULT_HOTKEYS` plus the current subtask's shortcuts. The chord is the choice ID and the description is its criterion. Caller descriptions override descriptions for matching defaults. No choices are stored on the policy or inherited by another subtask.
+
+JEV's selected chord is validated against that request's choices, and `materialize_action` independently checks it against the defaults plus the subtask's declarations. This also applies to custom decision policies: declare any non-default hotkey in the subtask before emitting it. The macOS backend encodes the selected chord using its general key map and modifier flags; it does not implement app-specific task sequences.
+
 ---
 
 ## Text entry

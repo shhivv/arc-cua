@@ -570,7 +570,18 @@ assert result.status == TerminalKind.SUBTASK_COMPLETE</code></pre>
       <li><span class="field-name">constraints</span> <span class="field-type">tuple[str, ...]</span> <span class="field-desc">Things the executor must not do (default: empty)</span></li>
       <li><span class="field-name">max_actions</span> <span class="field-type">int</span> <span class="field-desc">Action budget (default: 30)</span></li>
       <li><span class="field-name">metadata</span> <span class="field-type">Mapping[str, Any]</span> <span class="field-desc">Opaque pass-through for the caller</span></li>
+      <li><span class="field-name">shortcuts</span> <span class="field-type">Mapping[str, str]</span> <span class="field-desc">Keyboard chords and descriptions added to this subtask's HOTKEY choices (default: empty)</span></li>
     </ul>
+    <h4>Caller-supplied shortcuts</h4>
+    <p>Supply a keyboard chord and its meaning to JEV through the Python or JSON API:</p>
+    <pre><code>task = Subtask(
+    goal="Save the current document",
+    verification=("The document has no unsaved changes",),
+    shortcuts={"MOD+S": "Save the current document in this editor"},
+)</code></pre>
+    <p>JEV chooses from the defaults plus the supplied shortcuts when it selects <code>HOTKEY</code>. Defaults are unchanged; extra choices apply only to this subtask. Supplying an existing default chord gives it a contextual description.</p>
+    <p>Chords use uppercase keys and one or more MOD, CTRL, ALT, or SHIFT modifiers. MOD means Command on macOS. Keys include A-Z, 0-9, F1-F20, navigation keys, and named punctuation keys; see the <a href="/llms-full.txt">full reference</a> for the vocabulary. The macOS backend uses US/ANSI physical key positions. Each shortcut is one chord.</p>
+    <p>Invalid declarations are rejected when the subtask is created. Runtime validation also rejects undeclared non-default hotkeys, including those emitted by custom policies.</p>
   </div>
 
   <div class="api-block">
@@ -689,6 +700,7 @@ executor.cancel()                     # Thread-safe stop signal</code></pre>
 task = subtask_from_dict({
     "goal": "...", "verification": ["..."],
     "inputs": {...}, "constraints": [...], "max_actions": 15,
+    "shortcuts": {"MOD+S": "Save the current document in this editor"},
 })
 
 # Convert result to planner-friendly dict
