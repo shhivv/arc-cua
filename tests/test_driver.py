@@ -693,3 +693,63 @@ def test_chromium_apps_are_recognised_by_their_bundled_framework(tmp_path):
     assert app_at("Chromium Embedded Framework.framework")
     assert app_at("Electron Framework.framework")
     assert not app_at("")
+
+@pytest.mark.parametrize('mutation', ['name', 'value', 'parent_id', 'missing'])
+def test_context_guard_refuses_changed_record_without_target_change(driver, monkeypatch, mutation):
+    from dataclasses import replace
+
+    backend = app(driver).backend(A)
+    original_observe = backend.observe
+    record = [DesktopElement(id='record', role='StaticText', name='Record A', value='A', parent_id='record_group')]
+
+    def observe(window):
+        snapshot = original_observe(window)
+        return replace(snapshot, elements=(*snapshot.elements, *record))
+
+    monkeypatch.setattr(backend, 'observe', observe)
+    snapshot = driver.observe(WindowTarget(PID, A))
+    if mutation == 'missing':
+        record.clear()
+    else:
+        record[0] = replace(record[0], **{mutation: 'B'})
+    # A late structural notification must not replace the expected guard with
+    # the changed record's guard when the element IDs remain the same.
+    app(driver).journal.add('AXFocusedUIElementChanged', 'AXTextField')
+    result = driver.act(snapshot, 'CLICK', 'a_submit', guard_elements=['record'])
+    assert result.status == ('changed' if mutation == 'missing' else 'stale')
+    assert result.snapshot.context['window_id'] == A
+    assert app(driver).desktop.executed == []
+
+
+def test_context_guard_allows_unchanged_record_and_default_remains_opt_in(driver, monkeypatch):
+    from dataclasses import replace
+
+    backend = app(driver).backend(A)
+    original_observe = backend.observe
+    record = [DesktopElement(id='record', role='StaticText', name='Record A')]
+    monkeypatch.setattr(backend, 'observe', lambda window: replace(
+        original_observe(window), elements=(*original_observe(window).elements, *record)))
+    snapshot = driver.observe(WindowTarget(PID, A))
+    assert driver.act(snapshot, 'CLICK', 'a_submit', guard_elements=['record']).done
+    record[0] = replace(record[0], name='Record B')
+    assert driver.act(snapshot, 'CLICK', 'a_submit').done
+    assert len(app(driver).desktop.executed) == 2
+
+
+def test_context_guard_rejects_unobserved_or_invalid_ids_before_input(driver):
+    from arc_cua.errors import InvalidArguments
+
+    snapshot = driver.observe(PID)
+    for guards in [['unknown'], 'a_submit', [None], ['a_submit'] * 33]:
+        with pytest.raises(InvalidArguments):
+            driver.act(snapshot, 'CLICK', 'a_submit', guard_elements=guards)
+    assert app(driver).desktop.executed == []
+
+
+def test_guarded_action_stays_on_observed_window_after_focus_changes(driver):
+    snapshot = driver.observe(WindowTarget(PID, A))
+    app(driver).desktop.focused = B
+    app(driver).journal.add('AXFocusedWindowChanged', 'AXWindow')
+    result = driver.act(snapshot, 'CLICK', 'a_submit', guard_elements=['a_submit'])
+    assert result.done
+    assert app(driver).desktop.executed == [(A, ActionKind.CLICK, 'a_submit')]

@@ -414,3 +414,15 @@ also checks that no action moved the user's pointer or changed their front app.
 - Pointer input (`click_at`, and clicks on controls that offer no press action)
   takes about 200 ms, for the event sequence browsers require.
 - Windows on another desktop (Space) are not reachable; the driver says so.
+
+### Optional observed context guards
+
+A stable Submit button can belong to a different record after the surrounding form changes. For a record-specific action, pass the IDs of the context elements you selected from the same observation:
+
+```python
+result = driver.act(snapshot, "CLICK", submit.id, guard_elements=[record_heading.id], settle=True)
+```
+
+The MCP `act` tool accepts the same optional `guard_elements` array (at most 32 IDs). The driver captures each anchor's observed semantic guard, freshly observes the same PID/window before input, and refuses with `stale` if an anchor changed or disappeared; a structural change returns `changed`. Invalid or unobserved IDs execute nothing. The expected anchors remain those of the supplied snapshot, even when late notifications cause another observation.
+
+Choose anchors that establish the intended record and required predicates; the driver does not infer which heading belongs to which Submit button. These checks are not an application transaction: an app can still change after validation. Keep outcome verification and any stronger application-side record/version checks. Omitting `guard_elements` retains the existing action path and cost.

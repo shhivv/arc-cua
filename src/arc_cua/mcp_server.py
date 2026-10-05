@@ -134,6 +134,11 @@ TOOLS: list[dict[str, Any]] = [
                 "hotkey": {"type": "string"},
                 "direction": {"type": "string", "enum": ["UP", "DOWN", "LEFT", "RIGHT"]},
                 "modifier": {"type": "string", "enum": ["MOD", "SHIFT"]},
+                "guard_elements": {
+                    "type": "array", "items": {"type": "string"}, "maxItems": 32,
+                    "description": "Observed context element IDs that must still match before acting, "
+                                   "e.g. the record heading.",
+                },
                 **_SETTLE,
             },
             "required": ["snapshot", "action"],
@@ -504,11 +509,13 @@ class Server:
     def tool_act(
         self, snapshot: str, action: str, element: str | None = None, value: Any = None, key: str | None = None,
         hotkey: str | None = None, direction: str | None = None, modifier: str | None = None, settle: bool = False,
+        guard_elements: list[str] | None = None,
     ) -> dict[str, Any]:
         kept = self._snapshot(snapshot)
         result = self.driver.act(
             kept, action, element, value=value, key=key, hotkey=hotkey,
             scroll_direction=direction, click_modifier=modifier, settle=settle,
+            guard_elements=() if guard_elements is None else guard_elements,
         )
         return self._act_result(result, kept.context["pid"])
 
