@@ -444,9 +444,12 @@ class Driver:
         scroll_direction: str | None = None,
         click_modifier: str | None = None,
         settle: bool = False,
+        guard_elements: tuple[str, ...] | list[str] = (),
     ) -> ActResult:
         """Perform one action on an element of ``snapshot``, in the snapshot's window,
-        if the app has not changed under it. With ``settle``, then wait until the app
+        if the app has not changed under it. Optional ``guard_elements`` binds up to
+        32 observed context elements (for example a record heading); a changed or
+        missing anchor refuses before input. With ``settle``, then wait until the app
         has finished reacting and return a fresh snapshot of the window (see ``settle``)."""
         started = time.perf_counter()
         kind = ActionKind(kind)
@@ -454,9 +457,33 @@ class Driver:
         action = _action(snapshot, kind, target, value=value, key=key, hotkey=hotkey,
                          scroll_direction=scroll_direction, click_modifier=click_modifier)
 
+        if not isinstance(guard_elements, (tuple, list)) or len(guard_elements) > 32:
+            raise InvalidArguments("guard_elements must be a list of at most 32 observed element IDs")
+        guards = {}
+        for element_id in guard_elements:
+            if not isinstance(element_id, str):
+                raise InvalidArguments("guard_elements must contain observed element IDs")
+            try:
+                guards[element_id] = snapshot.element(element_id).semantic_guard()
+            except KeyError:
+                raise InvalidArguments(f"Guard element {element_id!r} was not in the supplied snapshot") from None
         refused, snapshot = self._check(snapshot, started)
         if refused is not None:
             return refused
+        if guards:
+            fresh = self.observe(window)
+            if {e.id for e in fresh.elements} != {e.id for e in snapshot.elements}:
+                return ActResult("changed", fresh, ("Context observation changed the window structure",),
+                                 (time.perf_counter() - started) * 1000)
+            for element_id, expected in guards.items():
+                try:
+                    current = fresh.element(element_id)
+                except KeyError:
+                    current = None
+                if current is None or current.semantic_guard() != expected:
+                    return ActResult("stale", fresh, (f"Guard element {element_id} changed",),
+                                     (time.perf_counter() - started) * 1000)
+            snapshot = fresh
         app = self._app(window.pid)
         before = app.settle_probe() if settle else None
         self._stop_if_cancelled()

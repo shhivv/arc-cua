@@ -372,3 +372,28 @@ def test_observe_passes_on_a_hint_only_when_there_is_one():
     srv.driver._app(PID).app.embeds_chromium = True
     hint = call(srv, "observe", pid=PID)["structuredContent"]["hint"]
     assert hint["code"] == "relaunch_for_accessibility"
+
+
+def test_act_exposes_and_forwards_optional_context_guards():
+    srv = server()
+    tools = srv.handle({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})['result']['tools']
+    schema = next(t for t in tools if t['name'] == 'act')['inputSchema']
+    assert schema['properties']['guard_elements']['maxItems'] == 32
+    observed = call(srv, 'observe', pid=PID)['structuredContent']
+    invalid = call(srv, 'act', snapshot=observed['snapshot'], action='CLICK', element='a_submit',
+                   guard_elements=['unobserved'])
+    assert invalid['isError']
+    assert srv.driver._app(PID).desktop.executed == []
+    valid = call(srv, 'act', snapshot=observed['snapshot'], action='CLICK', element='a_submit',
+                 guard_elements=['a_submit'])['structuredContent']
+    assert valid['status'] == 'done'
+
+
+def test_act_rejects_invalid_falsy_guards_without_input():
+    for guards in [False, 0, '', {}]:
+        srv = server()
+        observed = call(srv, 'observe', pid=PID)['structuredContent']
+        result = call(srv, 'act', snapshot=observed['snapshot'], action='CLICK', element='a_submit',
+                      guard_elements=guards)
+        assert result['isError']
+        assert srv.driver._app(PID).desktop.executed == []
